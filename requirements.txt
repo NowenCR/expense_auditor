@@ -1,0 +1,12 @@
+PySide6==6.7.2
+pandas==2.2.2
+openpyxl==3.1.5
+numpy==2.0.1
+pydantic==2.8.2
+python-dateutil==2.9.0.post0
+regex==2024.7.24
+xlsxwriter==3.2.0
+
+# Opcional IA Azure (solo si lo activas)
+openai==1.40.6
+azure-identity==1.17.1

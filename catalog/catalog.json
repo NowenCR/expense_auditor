@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "allowlist_merchants": ["UBER *TRIP", "MICROSOFT", "AMAZON WEB SERVICES"],
+  "mcc_rules": [
+    {
+      "mcc": "7995",
+      "severity": "DIRECT_WARN",
+      "reason": "Gambling MCC detectado"
+    }
+  ],
+  "keyword_rules": [
+    {
+      "pattern": "(?i)casino|bet|gambling|stake",
+      "severity": "DIRECT_WARN",
+      "reason": "Merchant contiene keyword de apuestas"
+    },
+    {
+      "pattern": "(?i)gift\\s*card|giftcard",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Posible compra de gift card"
+    }
+  ],
+  "amount_rules": [
+    {
+      "scope": "global",
+      "min_amount": 500.0,
+      "severity": "POSSIBLE_WARN",
+      "reason": "Monto alto global (>=500)"
+    }
+  ]
+}

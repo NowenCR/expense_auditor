@@ -1,0 +1,62 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+*.egg
+*.manifest
+*.spec
+
+# ---- Virtual envs ----
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# ---- IDEs / editors ----
+.vscode/
+.idea/
+*.iml
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
+
+# ---- Logs ----
+*.log
+
+# ---- PyTest / coverage ----
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+junit.xml
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- Qt / PySide6 ----
+*.qmlc
+*.jsc
+*.qrc~
+*.rcc
+
+# ---- Local config / secrets ----
+.env
+.env.*
+*.pem
+*.key
+
+# ---- Excel temporary files ----
+~$*.xlsx
+~$*.xls
+*.tmp
+
+# ---- Cache folders ----
+.cache/
