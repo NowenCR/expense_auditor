@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import pandas as pd
 from dateutil import parser
 
@@ -24,14 +25,13 @@ def validate_and_clean(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
 
     # amount
     if "amount" in out.columns:
-        # convierte a numérico y abs
         out["amount"] = pd.to_numeric(out["amount"], errors="coerce")
         miss = out["amount"].isna().sum()
         if miss:
-            issues.append(f"{miss} filas con amount inválido (NaN)")
+            issues.append(f"{miss} filas con amount inválido (NaN => 0)")
         out["amount"] = out["amount"].fillna(0).abs()
 
-    # date (si viene sucia)
+    # date
     if "date" in out.columns:
         if not pd.api.types.is_datetime64_any_dtype(out["date"]):
             def _parse(x):
@@ -42,14 +42,34 @@ def validate_and_clean(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
                 except Exception:
                     return pd.NaT
             out["date"] = out["date"].apply(_parse)
+
         miss = out["date"].isna().sum()
         if miss:
             issues.append(f"{miss} filas con date inválida (NaT)")
 
-    # description / employee opcionales
+    # description / employee opcionales (si existen)
     for col, default in [("description", ""), ("employee", "")]:
         if col in out.columns:
             out[col] = out[col].fillna(default).astype(str)
 
+    # ✅ Construir employee desde First+Last (soporta headers reales o fallback posicional)
+    if "employee" not in out.columns:
+        first = next(
+            (c for c in out.columns if c.strip().lower() in ["cardholder first name", "first_name"]),
+            None
+        )
+        last = next(
+            (c for c in out.columns if c.strip().lower() in ["cardholder last name", "last_name"]),
+            None
+        )
+
+        if first and last:
+            out["employee"] = (
+                out[first].fillna("").astype(str).str.strip()
+                + " "
+                + out[last].fillna("").astype(str).str.strip()
+            ).str.strip()
+        else:
+            out["employee"] = ""
+
     return out, issues
-    

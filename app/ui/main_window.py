@@ -1,26 +1,80 @@
 from __future__ import annotations
+
+import pandas as pd
+from PySide6.QtCore import QThread
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QProgressBar,
-    QTableWidget, QTableWidgetItem, QLineEdit, QTextEdit
+    QTableWidget, QTableWidgetItem, QFrame
 )
-from PySide6.QtCore import QThread
-import pandas as pd
 
-from app.data.io_excel import read_excel, list_sheets
-from app.data.mapping import apply_column_mapping, missing_required_columns, REQUIRED_CANONICAL
+from app.data.io_excel import list_sheets
+from app.data.header_detection import read_excel_noheader, detect_header_row, apply_detected_header
+from app.data.positional_mapping import build_mapping_from_positions
+from app.data.fixed_mapping import fixed_mapping_for_your_headers
+from app.data.mapping import apply_column_mapping, missing_required_columns
 from app.data.cleaning import validate_and_clean
 from app.data.export import export_to_excel, export_to_csv
-from app.engine.catalog import load_catalog, save_catalog
+
+from app.engine.catalog import load_catalog
 from app.engine.validator import validate_generated_catalog
 from app.ui.worker import ProcessingWorker
 from app.ui.dialogs import info, warn, error
+from app.ui.catalog_dialog import CatalogDialog
+
+
+STYLE = """
+QMainWindow { background: #0b1220; }
+QLabel { color: #e7eefc; font-size: 12px; }
+QPushButton {
+    background: #1e3a8a; color: white; border: 1px solid #2b4aa8;
+    padding: 10px 14px; border-radius: 10px; font-weight: 600;
+}
+QPushButton:hover { background: #2547a9; }
+QPushButton:disabled { background: #22304a; color: #9fb2d6; border: 1px solid #2a3a5a; }
+
+QComboBox {
+    background: #0f1b33; color: #e7eefc; border: 1px solid #223b6a;
+    padding: 8px 10px; border-radius: 10px;
+}
+
+QProgressBar {
+    border: 1px solid #223b6a; border-radius: 10px; background: #0f1b33;
+    text-align: center; color: #e7eefc; height: 18px;
+}
+QProgressBar::chunk { background: #2563eb; border-radius: 10px; }
+
+QTableWidget {
+    background: #0f1b33; color: #e7eefc; gridline-color: #1c2e55;
+    border: 1px solid #223b6a; border-radius: 10px;
+}
+QHeaderView::section {
+    background: #0b1730; color: #e7eefc; border: 1px solid #1c2e55;
+    padding: 6px;
+}
+"""
+
+def _badge(text: str, bg: str, fg: str = "white") -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet(f"""
+        QLabel {{
+            background: {bg};
+            color: {fg};
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-weight: 700;
+        }}
+    """)
+    return lbl
+
 
 class MainWindow(QMainWindow):
     def __init__(self, catalog_path: str):
         super().__init__()
         self.setWindowTitle("Corporate Expense Auditor (Flags)")
-        self.resize(1100, 700)
+        self.resize(1150, 750)
+        self.setStyleSheet(STYLE)
 
         self.catalog_path = catalog_path
         self.catalog = load_catalog(catalog_path)
@@ -33,102 +87,101 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._worker: ProcessingWorker | None = None
 
+        self._build_menu()
+
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
+        layout.setSpacing(12)
 
-        # Top actions
+        # Top row: load + sheet + analyze
         row1 = QHBoxLayout()
         self.btn_load = QPushButton("Cargar Excel")
         self.sheet_combo = QComboBox()
         self.sheet_combo.setEnabled(False)
-        self.btn_apply_sheet = QPushButton("Cargar hoja")
-        self.btn_apply_sheet.setEnabled(False)
+        self.btn_load_sheet = QPushButton("Cargar hoja")
+        self.btn_load_sheet.setEnabled(False)
+
+        self.btn_analyze = QPushButton("Analizar documento")
+        self.btn_analyze.setEnabled(False)
 
         row1.addWidget(self.btn_load)
         row1.addWidget(QLabel("Hoja:"))
         row1.addWidget(self.sheet_combo, 1)
-        row1.addWidget(self.btn_apply_sheet)
+        row1.addWidget(self.btn_load_sheet)
+        row1.addStretch(1)
+        row1.addWidget(self.btn_analyze)
         layout.addLayout(row1)
 
-        # Mapping quick inputs
-        layout.addWidget(QLabel("Mapeo de columnas (elige columnas del Excel para cada campo requerido):"))
-        self.mapping_boxes: dict[str, QComboBox] = {}
-        map_row = QHBoxLayout()
-        self.columns_combo_source = QComboBox()
-        self.columns_combo_source.setEnabled(False)
-        map_row.addWidget(QLabel("Columnas disponibles:"))
-        map_row.addWidget(self.columns_combo_source, 1)
-        layout.addLayout(map_row)
-
-        grid = QHBoxLayout()
-        for canonical in REQUIRED_CANONICAL:
-            col = QVBoxLayout()
-            col.addWidget(QLabel(canonical))
-            cb = QComboBox()
-            cb.setEnabled(False)
-            self.mapping_boxes[canonical] = cb
-            col.addWidget(cb)
-            grid.addLayout(col)
-        layout.addLayout(grid)
-
-        row_map_btn = QHBoxLayout()
-        self.btn_prepare = QPushButton("Validar + Preparar datos")
-        self.btn_prepare.setEnabled(False)
-        self.btn_run = QPushButton("Correr flags")
-        self.btn_run.setEnabled(False)
-        self.btn_cancel = QPushButton("Cancelar")
-        self.btn_cancel.setEnabled(False)
-        row_map_btn.addWidget(self.btn_prepare)
-        row_map_btn.addWidget(self.btn_run)
-        row_map_btn.addWidget(self.btn_cancel)
-        layout.addLayout(row_map_btn)
-
-        # Progress
+        # Status + progress
         rowp = QHBoxLayout()
-        self.status_lbl = QLabel("Estado: esperando")
+        self.status_lbl = QLabel("Estado: esperando archivo")
         self.progress = QProgressBar()
         self.progress.setValue(0)
-        rowp.addWidget(self.status_lbl, 1)
-        rowp.addWidget(self.progress, 2)
+        rowp.addWidget(self.status_lbl, 2)
+        rowp.addWidget(self.progress, 3)
         layout.addLayout(rowp)
 
-        # Preview table
-        self.table = QTableWidget(0, 0)
-        layout.addWidget(QLabel("Preview (primeras 50 filas):"))
-        layout.addWidget(self.table, 1)
+        # Summary badges
+        sum_row = QHBoxLayout()
+        self.badge_ok = _badge("OK: 0", "#14532d")
+        self.badge_possible = _badge("POSSIBLE_WARN: 0", "#7c2d12")
+        self.badge_direct = _badge("DIRECT_WARN: 0", "#7f1d1d")
+        sum_row.addWidget(self.badge_ok)
+        sum_row.addWidget(self.badge_possible)
+        sum_row.addWidget(self.badge_direct)
+        sum_row.addStretch(1)
 
-        # Export
-        row2 = QHBoxLayout()
+        # Export + cancel
+        self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.setEnabled(False)
         self.btn_export_excel = QPushButton("Exportar Excel")
         self.btn_export_csv = QPushButton("Exportar CSV")
         self.btn_export_excel.setEnabled(False)
         self.btn_export_csv.setEnabled(False)
-        row2.addWidget(self.btn_export_excel)
-        row2.addWidget(self.btn_export_csv)
-        layout.addLayout(row2)
 
-        # Catalog quick edit (simple)
-        layout.addWidget(QLabel("Catálogo JSON (editable):"))
-        self.catalog_editor = QTextEdit()
-        self.catalog_editor.setPlainText(self._catalog_text())
-        self.btn_save_catalog = QPushButton("Guardar catálogo")
-        layout.addWidget(self.catalog_editor, 1)
-        layout.addWidget(self.btn_save_catalog)
+        sum_row.addWidget(self.btn_cancel)
+        sum_row.addWidget(self.btn_export_excel)
+        sum_row.addWidget(self.btn_export_csv)
+        layout.addLayout(sum_row)
+
+        # Divider
+        div = QFrame()
+        div.setFrameShape(QFrame.HLine)
+        div.setStyleSheet("color: #223b6a;")
+        layout.addWidget(div)
+
+        # Table preview
+        layout.addWidget(QLabel("Resultados (primeras 60 filas):"))
+        self.table = QTableWidget(0, 0)
+        layout.addWidget(self.table, 1)
 
         # Events
         self.btn_load.clicked.connect(self.on_load_excel)
-        self.btn_apply_sheet.clicked.connect(self.on_load_sheet)
-        self.btn_prepare.clicked.connect(self.on_prepare)
-        self.btn_run.clicked.connect(self.on_run)
+        self.btn_load_sheet.clicked.connect(self.on_load_sheet)
+        self.btn_analyze.clicked.connect(self.on_analyze)
+
         self.btn_cancel.clicked.connect(self.on_cancel)
         self.btn_export_excel.clicked.connect(self.on_export_excel)
         self.btn_export_csv.clicked.connect(self.on_export_csv)
-        self.btn_save_catalog.clicked.connect(self.on_save_catalog)
 
-    def _catalog_text(self) -> str:
-        import json
-        return json.dumps(self.catalog.to_dict(), ensure_ascii=False, indent=2)
+    def _build_menu(self):
+        menubar = self.menuBar()
+        tools = menubar.addMenu("Herramientas")
+
+        act_catalog = QAction("Catálogo de reglas…", self)
+        act_catalog.triggered.connect(self.open_catalog_dialog)
+        tools.addAction(act_catalog)
+
+    def open_catalog_dialog(self):
+        dlg = CatalogDialog(self, self.catalog, self.catalog_path)
+        dlg.exec()
+
+        if dlg.saved_ok:
+            self.catalog = dlg.get_catalog()
+            info(self, "Catálogo", "Catálogo guardado y recargado.")
+        elif dlg.error_msg:
+            error(self, "Catálogo inválido", dlg.error_msg)
 
     def on_load_excel(self):
         path, _ = QFileDialog.getOpenFileName(self, "Selecciona Excel", "", "Excel (*.xlsx *.xls)")
@@ -139,69 +192,98 @@ class MainWindow(QMainWindow):
         self.sheet_combo.clear()
         self.sheet_combo.addItems(sheets)
         self.sheet_combo.setEnabled(True)
-        self.btn_apply_sheet.setEnabled(True)
-        self.status_lbl.setText(f"Estado: Excel cargado ({path})")
+        self.btn_load_sheet.setEnabled(True)
+        self.status_lbl.setText("Estado: Excel cargado. Selecciona hoja.")
+        self.progress.setValue(0)
 
     def on_load_sheet(self):
         if not self.excel_path:
             return
+
         sheet = self.sheet_combo.currentText()
-        df = read_excel(self.excel_path, sheet_name=sheet)
-        self.df_raw = df
 
-        cols = list(df.columns)
-        self.columns_combo_source.clear()
-        self.columns_combo_source.addItems(cols)
-        self.columns_combo_source.setEnabled(True)
+        # ✅ A) Leer sin headers
+        df0 = read_excel_noheader(self.excel_path, sheet_name=sheet)
 
-        for cb in self.mapping_boxes.values():
-            cb.clear()
-            cb.addItem("")  # allow empty
-            cb.addItems(cols)
-            cb.setEnabled(True)
+        # ✅ A) Detectar fila header escondida
+        hdr = detect_header_row(df0, max_scan_rows=30)
 
-        self.btn_prepare.setEnabled(True)
-        self.status_lbl.setText(f"Estado: hoja cargada ({sheet}) - filas: {len(df)}")
-        self._preview(df)
+        if hdr is not None:
+            df_raw = apply_detected_header(df0, hdr)
+            self.status_lbl.setText(f"Estado: headers detectados en fila {hdr + 1} | filas: {len(df_raw)}")
+        else:
+            # ✅ B) No hay headers: crear columnas genéricas
+            df_raw = df0.copy()
+            df_raw.columns = [f"COL_{i}" for i in range(df_raw.shape[1])]
+            self.status_lbl.setText(f"Estado: sin headers (posicional) | filas: {len(df_raw)}")
 
-    def on_prepare(self):
+        self.df_raw = df_raw
+        self.df_ready = None
+        self.df_result = None
+
+        self._reset_counts()
+        self._preview(df_raw.head(60))
+
+        self.btn_analyze.setEnabled(True)
+        self.btn_export_excel.setEnabled(False)
+        self.btn_export_csv.setEnabled(False)
+
+    def on_analyze(self):
         if self.df_raw is None:
             return
 
-        # build mapping canonical->selected column
-        mapping = {}
-        for canonical, cb in self.mapping_boxes.items():
-            src = cb.currentText().strip()
-            if src:
-                mapping[canonical] = src
+        df_raw = self.df_raw
 
-        df = apply_column_mapping(self.df_raw, mapping)
+        # ✅ C) Decide mapping: por nombres (ideal) o por posiciones (fallback)
+        expected = {"Transaction Date", "Clean Merchant Name", "Total Transaction Amount", "MCC", "Purchase Category"}
 
-        missing = missing_required_columns(df)
-        if missing:
-            warn(self, "Faltan columnas", "Te faltan por mapear: " + ", ".join(missing))
+        if expected.issubset(set(df_raw.columns)):
+            # Caso ideal: headers reales
+            mapping = fixed_mapping_for_your_headers()
+            df = apply_column_mapping(df_raw, mapping)
+        else:
+            # Fallback posicional
+            pos_map = build_mapping_from_positions(list(df_raw.columns))
+
+            mapping = {
+                "date": pos_map["date"],
+                "merchant": pos_map["merchant"],
+                "amount": pos_map["amount"],
+                "mcc": pos_map["mcc"],
+                "description": pos_map["description"],
+            }
+
+            # Renombrar first/last para que cleaning arme employee
+            df = df_raw.rename(columns={
+                pos_map.get("first_name", ""): "first_name",
+                pos_map.get("last_name", ""): "last_name",
+            }).copy()
+
+            df = apply_column_mapping(df, mapping)
+
+        # Validar columnas canónicas
+        miss = missing_required_columns(df)
+        if miss:
+            warn(self, "Archivo no compatible", "No pude mapear columnas necesarias:\n" + ", ".join(miss))
             return
 
+        # Limpiar datos
         cleaned, issues = validate_and_clean(df)
         self.df_ready = cleaned
+
         if issues:
             warn(self, "Datos limpiados", "\n".join(issues))
 
+        # Validar catálogo (avisar pero permitir)
         ok, errs = validate_generated_catalog(self.catalog, self.df_ready)
         if not ok:
-            warn(self, "Catálogo con problemas", "Tu catálogo tiene issues:\n" + "\n".join(errs))
+            warn(self, "Catálogo con problemas", "Se detectaron issues:\n" + "\n".join(errs))
 
-        self.btn_run.setEnabled(True)
-        self.status_lbl.setText("Estado: datos listos para correr reglas")
-        self._preview(self.df_ready)
-
-    def on_run(self):
-        if self.df_ready is None:
-            return
-
+        # Ejecutar worker
         self.progress.setValue(0)
-        self.btn_run.setEnabled(False)
+        self.btn_analyze.setEnabled(False)
         self.btn_cancel.setEnabled(True)
+        self.status_lbl.setText("Estado: procesando...")
 
         self._thread = QThread()
         self._worker = ProcessingWorker(self.df_ready, self.catalog, chunk_size=5000)
@@ -213,7 +295,6 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(self.on_finished)
         self._worker.failed.connect(self.on_failed)
 
-        # cleanup
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.finished.connect(self._thread.deleteLater)
@@ -230,13 +311,15 @@ class MainWindow(QMainWindow):
         self.btn_export_excel.setEnabled(True)
         self.btn_export_csv.setEnabled(True)
         self.btn_cancel.setEnabled(False)
-        self.btn_run.setEnabled(True)
+        self.btn_analyze.setEnabled(True)
+
         self.status_lbl.setText("Estado: terminado")
-        self._preview(result)
+        self._update_counts(result)
+        self._preview(result.head(60))
 
     def on_failed(self, msg: str):
         self.btn_cancel.setEnabled(False)
-        self.btn_run.setEnabled(True)
+        self.btn_analyze.setEnabled(True)
         error(self, "Error", msg)
         self.status_lbl.setText("Estado: error")
 
@@ -258,27 +341,41 @@ class MainWindow(QMainWindow):
         export_to_csv(self.df_result, path)
         info(self, "Exportado", f"Archivo generado:\n{path}")
 
-    def on_save_catalog(self):
-        import json
-        try:
-            data = json.loads(self.catalog_editor.toPlainText())
-            from app.core.models import Catalog
-            cat = Catalog.model_validate(data)
-            self.catalog = cat
-            save_catalog(cat, self.catalog_path)
-            info(self, "Catálogo", "Catálogo guardado correctamente.")
-        except Exception as e:
-            error(self, "Catálogo inválido", str(e))
+    def _reset_counts(self):
+        self.badge_ok.setText("OK: 0")
+        self.badge_possible.setText("POSSIBLE_WARN: 0")
+        self.badge_direct.setText("DIRECT_WARN: 0")
+
+    def _update_counts(self, df: pd.DataFrame):
+        counts = df["flag"].value_counts(dropna=False).to_dict()
+        ok = int(counts.get("OK", 0))
+        poss = int(counts.get("POSSIBLE_WARN", 0))
+        direct = int(counts.get("DIRECT_WARN", 0))
+
+        self.badge_ok.setText(f"OK: {ok}")
+        self.badge_possible.setText(f"POSSIBLE_WARN: {poss}")
+        self.badge_direct.setText(f"DIRECT_WARN: {direct}")
 
     def _preview(self, df: pd.DataFrame):
-        head = df.head(50).copy()
-        self.table.setRowCount(len(head))
-        self.table.setColumnCount(len(head.columns))
-        self.table.setHorizontalHeaderLabels([str(c) for c in head.columns])
+        self.table.setRowCount(len(df))
+        self.table.setColumnCount(len(df.columns))
+        self.table.setHorizontalHeaderLabels([str(c) for c in df.columns])
 
-        for r in range(len(head)):
-            for c, col in enumerate(head.columns):
-                val = head.iloc[r, c]
-                self.table.setItem(r, c, QTableWidgetItem("" if pd.isna(val) else str(val)))
+        for r in range(len(df)):
+            for c, col in enumerate(df.columns):
+                val = df.iloc[r, c]
+                item = QTableWidgetItem("" if pd.isna(val) else str(val))
+
+                # Colorear columna flag si existe
+                if str(col).lower() == "flag":
+                    v = str(val)
+                    if v == "DIRECT_WARN":
+                        item.setBackground("#7f1d1d")
+                    elif v == "POSSIBLE_WARN":
+                        item.setBackground("#7c2d12")
+                    elif v == "OK":
+                        item.setBackground("#14532d")
+
+                self.table.setItem(r, c, item)
 
         self.table.resizeColumnsToContents()
