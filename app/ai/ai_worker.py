@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import traceback
-from collections import defaultdict
 from typing import Any
-
 import pandas as pd
 from PySide6.QtCore import QObject, Signal
 
+# Importamos la lógica necesaria desde ai_explainer
+from app.ai.ai_explainer import should_send_to_ai
 from app.ai.azure_foundry_client import AzureFoundryClient, AIResult
-
 
 class AIWorker(QObject):
     progress = Signal(int)
@@ -16,109 +15,74 @@ class AIWorker(QObject):
     finished = Signal(pd.DataFrame)
     failed = Signal(str)
 
-    def __init__(
-        self,
-        df_result: pd.DataFrame,
-        max_calls: int = 200,
-        analyze_only_warnings: bool = True,
-    ):
+    def __init__(self, df: pd.DataFrame, max_calls: int = 200):
         super().__init__()
-        self.df_result = df_result
+        self.df = df
         self.max_calls = max_calls
-        self.analyze_only_warnings = analyze_only_warnings
-        self._cancelled = False
+        self._cancel = False
 
     def cancel(self):
-        self._cancelled = True
+        self._cancel = True
 
     def run(self):
         try:
-            self.status.emit("IA: inicializando cliente…")
-            client = AzureFoundryClient()  # usa .env
+            self.status.emit("IA: inicializando cliente...")
+            client = AzureFoundryClient()
 
-            df = self.df_result.copy()
+            out = self.df.copy()
+            # Asegurar columnas
+            for col in ["ai_category", "ai_reason", "ai_severity", "ai_web_evidence"]:
+                if col not in out.columns:
+                    out[col] = ""
 
-            # Asegurar columnas destino
-            for col in ["ai_severity", "ai_reason", "ai_category", "ai_confidence"]:
-                if col not in df.columns:
-                    df[col] = ""
-
-            # Selección de filas a analizar
-            if self.analyze_only_warnings and "flag" in df.columns:
-                target_mask = df["flag"].isin(["DIRECT_WARN", "POSSIBLE_WARN"])
-            else:
-                target_mask = pd.Series([True] * len(df))
-
-            target_idx = df.index[target_mask].tolist()
-            if not target_idx:
-                self.status.emit("IA: no hay filas para analizar")
-                self.progress.emit(100)
-                self.finished.emit(df)
-                return
-
-            # Cache por merchant (y opcionalmente por mcc)
-            groups: dict[tuple[str, str], list[int]] = defaultdict(list)
-
-            def norm(x: Any) -> str:
-                if pd.isna(x) or x is None:
-                    return ""
-                return str(x).strip()
-
-            for i in target_idx:
-                merch = norm(df.at[i, "merchant"]) if "merchant" in df.columns else ""
-                mcc = norm(df.at[i, "mcc"]) if "mcc" in df.columns else ""
-                key = (merch.upper(), mcc)
-                groups[key].append(i)
-
-            keys = list(groups.keys())
-            total_keys = min(len(keys), self.max_calls)
-
-            self.status.emit(f"IA: analizando {total_keys} merchants únicos…")
-
-            # Procesar merchants únicos (limitar costo)
-            for n, key in enumerate(keys[: self.max_calls], start=1):
-                if self._cancelled:
-                    self.status.emit("IA: cancelado")
+            total_rows = len(out)
+            calls = 0
+            
+            # --- LOOP DENTRO DEL WORKER PARA PERMITIR CANCELACIÓN ---
+            for idx, row in out.iterrows():
+                # 1. Chequeo de cancelación en cada iteración
+                if self._cancel:
+                    self.status.emit("IA: operación cancelada por el usuario.")
                     break
 
-                merch_u, mcc = key
-                any_row_idx = groups[key][0]
+                if calls >= self.max_calls:
+                    self.status.emit(f"IA: límite de llamadas alcanzado ({self.max_calls})")
+                    break
 
-                row = {
-                    "merchant": merch_u,
-                    "mcc": mcc,
-                    "description": norm(df.at[any_row_idx, "description"]) if "description" in df.columns else "",
-                    "amount": norm(df.at[any_row_idx, "amount"]) if "amount" in df.columns else "",
-                    "date": norm(df.at[any_row_idx, "date"]) if "date" in df.columns else "",
-                    "country": norm(df.at[any_row_idx, "country"]) if "country" in df.columns else "",
-                    "purchase_category": norm(df.at[any_row_idx, "purchase_category"]) if "purchase_category" in df.columns else "",
-                    "flag": norm(df.at[any_row_idx, "flag"]) if "flag" in df.columns else "",
-                    "reasons": norm(df.at[any_row_idx, "reasons"]) if "reasons" in df.columns else "",
+                # 2. Filtrado (solo analizar lo necesario)
+                if not should_send_to_ai(row):
+                    continue
+
+                # 3. Preparar payload (pasando el contexto de reglas previas)
+                payload: dict[str, Any] = {
+                    "merchant": row.get("merchant"),
+                    "mcc": row.get("mcc"),
+                    "description": row.get("description"),
+                    "amount": row.get("amount"),
+                    "date": row.get("date"),
+                    "country": row.get("country") if "country" in out.columns else None,
+                    "flag": row.get("flag"),     
+                    "reasons": row.get("reasons") 
                 }
 
-                result: AIResult = client.evaluate_transaction(row)
-
-                # Aplicar resultado a todas las filas con ese merchant/mcc
-                for ridx in groups[key]:
-                    df.at[ridx, "ai_severity"] = result.severity
-                    df.at[ridx, "ai_reason"] = result.reason
-                    df.at[ridx, "ai_category"] = result.category
-                    # “confidence” opcional: si no viene, dejamos vacío
-                    df.at[ridx, "ai_confidence"] = getattr(result, "confidence", "")
-
-                pct = int((n / total_keys) * 100)
+                # 4. Llamada a la IA
+                res: AIResult = client.evaluate_transaction(payload)
+                
+                out.at[idx, "ai_category"] = res.category
+                out.at[idx, "ai_reason"] = res.reason
+                out.at[idx, "ai_severity"] = res.severity
+                out.at[idx, "ai_web_evidence"] = res.web_evidence or ""
+                
+                calls += 1
+                
+                # 5. Emitir progreso real
+                # (idx + 1) para que llegue a 100% al final
+                pct = int(((idx + 1) / total_rows) * 100)
                 self.progress.emit(pct)
-                self.status.emit(f"IA: {n}/{total_keys} merchants analizados")
-
-            # Marcar si quedó truncado por max_calls
-            if len(keys) > self.max_calls:
-                self.status.emit(f"IA: límite alcanzado (max_calls={self.max_calls}). Analiza de nuevo o sube el límite.")
-            else:
-                self.status.emit("IA: listo")
 
             self.progress.emit(100)
-            self.finished.emit(df)
+            self.finished.emit(out)
 
         except Exception as e:
             tb = traceback.format_exc()
-            self.failed.emit(f"{e}\n\n{tb}")
+            self.failed.emit(f"{str(e)}\n\n{tb}")

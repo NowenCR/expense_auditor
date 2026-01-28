@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
+from app.ui.ai_worker import AIWorker
 
 import sys
 from PySide6.QtWidgets import QApplication

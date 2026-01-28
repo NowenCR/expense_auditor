@@ -23,9 +23,9 @@
   "amount_rules": [
     {
       "scope": "global",
-      "min_amount": 500.0,
+      "min_amount": 2000.0,
       "severity": "POSSIBLE_WARN",
-      "reason": "Monto alto global (>=500)"
+      "reason": "Monto alto global (>=2000)"
     }
   ]
 }

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pandas as pd
 from app.ui.ai_worker import AIWorker
 
-from PySide6.QtCore import QThread, Qt
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtCore import QThread, Qt, QEvent
+from PySide6.QtGui import QAction, QColor, QCloseEvent
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QProgressBar,
@@ -123,11 +123,12 @@ class MainWindow(QMainWindow):
         self.page_size = 60
         self.page_index = 0  # 0-based
 
-        # IA
+        # IA references
         self._ai_thread: QThread | None = None
         self._ai_worker: AIWorker | None = None
 
         self.excel_path: str | None = None
+        # Processing references
         self._thread: QThread | None = None
         self._worker: ProcessingWorker | None = None
 
@@ -453,6 +454,7 @@ class MainWindow(QMainWindow):
         self.status_lbl.setText("Estado: IA procesando...")
 
         self._ai_thread = QThread()
+        # Usa AIWorker con lógica de bucle interno
         self._ai_worker = AIWorker(self.df_result, max_calls=200)
         self._ai_worker.moveToThread(self._ai_thread)
 
@@ -720,3 +722,30 @@ class MainWindow(QMainWindow):
 
         self.table.resizeColumnsToContents()
         self.table.setUpdatesEnabled(True)
+
+    def closeEvent(self, event: QCloseEvent):
+        """
+        Evita: QThread: Destroyed while thread is still running
+        Garantiza cierre limpio al cerrar la ventana mientras hay threads activos.
+        """
+        try:
+            # --- IA thread
+            if self._ai_thread and self._ai_thread.isRunning():
+                if self._ai_worker:
+                    # pide cancelación al worker (no bloquea)
+                    if hasattr(self._ai_worker, "cancel"):
+                        self._ai_worker.cancel()
+
+                # intenta cerrar el thread de forma limpia
+                self._ai_thread.quit()
+                self._ai_thread.wait(5000)  # espera hasta 5s
+
+            # --- Processing thread (reglas)
+            if self._thread and self._thread.isRunning():
+                if self._worker and hasattr(self._worker, "cancel"):
+                    self._worker.cancel()
+                self._thread.quit()
+                self._thread.wait(5000)
+
+        finally:
+            event.accept()
