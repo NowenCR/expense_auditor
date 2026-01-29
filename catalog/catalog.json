@@ -1,6 +1,83 @@
 {
-  "version": "1.0.0",
-  "allowlist_merchants": ["UBER *TRIP", "MICROSOFT", "AMAZON WEB SERVICES"],
+  "version": "1.2.3",
+  "allowlist_merchants": [
+    "UBER *TRIP",
+    "MICROSOFT",
+    "AMAZON WEB SERVICES"
+  ],
+  "disallowed_keywords": [],
+  "mcc_description_rules": [
+    {
+      "pattern": "(?i)bar|lounge|disco|nightclub|tavern|alcohol",
+      "condition": "amount > 500 AND purchase_category != 'Lodging'",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Bares/discotecas/tavernas con monto alto"
+    },
+    {
+      "pattern": "(?i)digital\\s+goods.*large",
+      "severity": "DIRECT_WARN",
+      "reason": "Digital Goods: Large Merchant (ej. APPLE.COM)"
+    },
+    {
+      "pattern": "(?i)digital\\s+goods.*(media|books|movies|music)",
+      "severity": "DIRECT_WARN",
+      "reason": "Digital Goods: Media/Books/Movies/Music"
+    },
+    {
+      "pattern": "(?i)digital\\s+goods.*games",
+      "severity": "DIRECT_WARN",
+      "reason": "Digital Goods: Games"
+    },
+    {
+      "pattern": "(?i)dental|ophthalmic|medical\\s+equip|supplies",
+      "severity": "DIRECT_WARN",
+      "reason": "Gasto médico/insumos médicos"
+    },
+    {
+      "pattern": "(?i)other\\s+services.*not.*classified",
+      "severity": "DIRECT_WARN",
+      "reason": "Other Services NEC"
+    },
+    {
+      "pattern": "(?i)video\\s+game\\s+arcades?|establishments",
+      "severity": "DIRECT_WARN",
+      "reason": "Video Game Arcades"
+    },
+    {
+      "pattern": "(?i)tourist.*(attraction|exhibit)",
+      "severity": "DIRECT_WARN",
+      "reason": "Atracciones turísticas"
+    }
+  ],
+  "purchase_category_rules": [
+    {
+      "category": "Entertainment",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento (Floristerías permitidas)",
+      "exclude_patterns": [
+        "(?i)flowers?",
+        "(?i)florist",
+        "(?i)bouquets?",
+        "(?i)arrangements?"
+      ]
+    },
+    {
+      "category": "Health Services And Supplies",
+      "severity": "DIRECT_WARN",
+      "reason": "Servicios y suministros de salud"
+    },
+    {
+      "category": "Clothing/Shoes/Uniforms",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Ropa y calzado — validar uso"
+    },
+    {
+      "category": "Miscellaneous",
+      "condition": "merchant ~= '(?i)walmart' AND amount > 1000",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Misc — Walmart sobre $1000"
+    }
+  ],
   "mcc_rules": [
     {
       "mcc": "7995",
@@ -12,12 +89,27 @@
     {
       "pattern": "(?i)casino|bet|gambling|stake",
       "severity": "DIRECT_WARN",
-      "reason": "Merchant contiene keyword de apuestas"
+      "reason": "Keyword de apuestas"
     },
     {
       "pattern": "(?i)gift\\s*card|giftcard",
       "severity": "POSSIBLE_WARN",
-      "reason": "Posible compra de gift card"
+      "reason": "Posible gift card"
+    },
+    {
+      "pattern": "(?i)joinmorning\\.club",
+      "severity": "DIRECT_WARN",
+      "reason": "Other Services NEC — sitio no clasificado"
+    },
+    {
+      "pattern": "(?i)disney|resort",
+      "severity": "DIRECT_WARN",
+      "reason": "Disney/Resorts detectado en nombre de comercio"
+    },
+    {
+      "pattern": "(?i)clock|jewelry|watch|silverware",
+      "severity": "DIRECT_WARN",
+      "reason": "Joyería/relojería detectado en nombre de comercio"
     }
   ],
   "amount_rules": [

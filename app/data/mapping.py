@@ -1,16 +1,13 @@
 from __future__ import annotations
 import pandas as pd
 
-# SOLO lo mínimo para flaguear:
-# employee y description son opcionales (employee se genera en cleaning.py)
+# Definimos las columnas canónicas que el sistema espera
 REQUIRED_CANONICAL = ["date", "merchant", "amount", "mcc"]
-OPTIONAL_CANONICAL = ["employee", "description"]
+# Agregamos description, purchase_category y mcc_description como opcionales
+OPTIONAL_CANONICAL = ["employee", "description", "purchase_category", "mcc_description"]
 
 def apply_column_mapping(df: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
-    """
-    mapping: {canonical_name: source_column_name}
-    Ej: {"date":"Transaction Date","merchant":"Clean Merchant Name",...}
-    """
+    # Invierte el mapping para renombrar: {nombre_original: nombre_canonico}
     rename_map = {mapping[k]: k for k in mapping if mapping[k] in df.columns}
     out = df.rename(columns=rename_map).copy()
     return out
