@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.4.3",
   "allowlist_merchants": [
     "UBER *TRIP",
     "MICROSOFT",
@@ -17,6 +17,10 @@
     {
       "pattern": "(?i).*(restauran|grill|kitchen|food|pizza|tacos|sushi).*(bar|pub|lounge).*",
       "reason": "Restaurante que también es Bar (Permitido)"
+    },
+    {
+      "pattern": "(?i)^(?!.*(topgolf|golf|bowl|arcade|amusement|ticket|theat|cinema|stadium|arena|casino|bet|wager|fun|play|zone|rec)).*eating\\s+and\\s+drinking\\s+places.*",
+      "reason": "Eating and Drinking Places (Permitido SOLO si NO es entretenimiento/golf/juego)"
     }
   ],
   "disallowed_keywords": [],
@@ -78,9 +82,9 @@
       "reason": "Tickets / Entradas a eventos"
     },
     {
-      "pattern": "(?i)golf|pga\\b|country\\s*club|green\\s*fee|driving\\s*range",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Golf / Country Club (Investigar)"
+      "pattern": "(?i)golf|pga\\b|country\\s*club|green\\s*fee|driving\\s*range|topgolf",
+      "severity": "DIRECT_WARN",
+      "reason": "Golf / Topgolf / Country Club"
     },
     {
       "pattern": "(?i)disney|resort\\s*world",

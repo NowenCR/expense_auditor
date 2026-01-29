@@ -30,31 +30,35 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
     content_matched = pd.Series(False, index=out.index)
     allow_mask = pd.Series(False, index=out.index)
 
-    # Preparar columnas de texto para búsqueda (rellenar vacíos)
+    # Preparar columnas de texto
     col_merchant = out["merchant"].astype(str) if "merchant" in out.columns else pd.Series("", index=out.index)
     col_desc = out["description"].astype(str) if "description" in out.columns else pd.Series("", index=out.index)
     col_mcc_desc = out["mcc_description"].astype(str) if "mcc_description" in out.columns else pd.Series("", index=out.index)
 
-    # 1. ALLOWLIST SIMPLE (Strings) - Solo en Merchant (para evitar falsos positivos por descripciones genéricas)
+    # 1. ALLOWLIST SIMPLE (Strings) - Solo Merchant
     if catalog.allowlist_merchants:
         m = col_merchant.str.lower()
         for a in catalog.allowlist_merchants:
             if a.strip():
                 allow_mask |= m.str.contains(a.lower(), regex=False)
 
-    # 2. ALLOWLIST PATTERNS (Regex Avanzado) - Solo en Merchant
+    # 2. ALLOWLIST PATTERNS (Regex Contextual - MEJORADO)
+    # Fusionamos todo el texto para que el Regex pueda validar el contexto completo
+    # Esto permite detectar "Eating Places" PERO bloquear si dice "Topgolf" en el merchant
     if catalog.allowlist_patterns:
+        combined_context = (col_merchant + " " + col_desc + " " + col_mcc_desc).str.lower()
+        
         for rule in catalog.allowlist_patterns:
             try:
-                mask = col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True)
+                # Aplicamos el patrón al contexto completo
+                mask = combined_context.str.contains(rule.pattern, case=False, na=False, regex=True)
                 allow_mask |= mask
             except Exception:
                 pass
 
-    # 3. DISALLOWED KEYWORDS (Búsqueda en Merchant OR Description OR MCC Description)
+    # 3. DISALLOWED KEYWORDS (Multicolumna)
     if catalog.disallowed_keywords:
         for pat in catalog.disallowed_keywords:
-            # Buscar en las 3 columnas
             mask_merch = col_merchant.str.contains(pat, case=False, na=False, regex=True)
             mask_desc = col_desc.str.contains(pat, case=False, na=False, regex=True)
             mask_mcc = col_mcc_desc.str.contains(pat, case=False, na=False, regex=True)
@@ -63,12 +67,10 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
             
             if mask.any():
                 out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag.DIRECT_WARN)
-                # Detallar dónde se encontró
-                reason_suffix = " | Prohibido: " + pat
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + reason_suffix
+                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | Prohibido: " + pat
                 content_matched |= mask
 
-    # 4. MCC RULES (Código numérico)
+    # 4. MCC RULES
     if catalog.mcc_rules and "mcc" in out.columns:
         mcc_s = out["mcc"].astype(str)
         for rule in catalog.mcc_rules:
@@ -78,14 +80,12 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 5. KEYWORD RULES (Búsqueda en Merchant OR Description OR MCC Description)
+    # 5. KEYWORD RULES (Multicolumna)
     if catalog.keyword_rules:
         for rule in catalog.keyword_rules:
-            # Buscar en las 3 columnas
             mask_merch = col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True)
             mask_desc = col_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
             mask_mcc = col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
-            
             mask = mask_merch | mask_desc | mask_mcc
 
             if mask.any():
@@ -93,7 +93,7 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 6. MCC DESCRIPTION RULES (Específicas para mcc_description)
+    # 6. MCC DESCRIPTION RULES
     if catalog.mcc_description_rules:
         for rule in catalog.mcc_description_rules:
             mask_pat = col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
@@ -111,7 +111,6 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
             mask_cat = pcat.str.lower() == rule.category.lower()
             mask_cond = _evaluate_condition(out, rule.condition)
             
-            # Exclusiones solo miran Merchant (normalmente marcas como 'Florist')
             mask_excl = pd.Series(False, index=out.index)
             if rule.exclude_patterns:
                 for pat in rule.exclude_patterns:
@@ -123,7 +122,7 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 8. AMOUNT RULES (Baja Prioridad)
+    # 8. AMOUNT RULES
     if catalog.amount_rules and "amount" in out.columns:
         amt = pd.to_numeric(out["amount"], errors="coerce").fillna(0)
         for rule in catalog.amount_rules:
