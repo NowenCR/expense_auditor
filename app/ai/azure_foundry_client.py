@@ -19,79 +19,72 @@ class AIResult:
 
 class AzureFoundryClient:
     """
-    Cliente real para evaluar merchants usando Azure (Foundry Models) vía OpenAI SDK estable.
-
-    Env vars requeridas:
-      - AZURE_FOUNDRY_ENDPOINT
-      - AZURE_FOUNDRY_API_KEY
-      - AZURE_FOUNDRY_MODEL      (Recomendado: gpt-5.2-preview o similar)
-      - AZURE_FOUNDRY_API_VERSION
+    Cliente optimizado para análisis profundo de texto (Merchant + Description + MCC Desc).
     """
 
     def __init__(self):
         self.endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT", "").strip()
         self.api_key = os.getenv("AZURE_FOUNDRY_API_KEY", "").strip()
-        # Configura el modelo en tu .env con: AZURE_FOUNDRY_MODEL=gpt-5.2-preview
         self.model = os.getenv("AZURE_FOUNDRY_MODEL", "gpt-4.0").strip()
         self.api_version = os.getenv("AZURE_FOUNDRY_API_VERSION", "2024-10-21").strip()
 
         if not self.endpoint or not self.api_key:
             raise RuntimeError(
-                "Faltan env vars: AZURE_FOUNDRY_ENDPOINT / AZURE_FOUNDRY_API_KEY. "
-                "Crea el archivo .env en la raíz del proyecto."
+                "Faltan env vars: AZURE_FOUNDRY_ENDPOINT / AZURE_FOUNDRY_API_KEY."
             )
 
-        # Cliente AzureOpenAI (OpenAI SDK estable)
         self.client = AzureOpenAI(
             azure_endpoint=self.endpoint,
             api_key=self.api_key,
             api_version=self.api_version,
         )
 
-    # -----------------------------
-    # Public API
-    # -----------------------------
     def evaluate_transaction(self, row: dict[str, Any]) -> AIResult:
         """
-        Versión optimizada para Modelos Avanzados (GPT-5.2+).
-        Conocimiento Paramétrico Puro: No usa búsqueda web, confía en el entrenamiento del modelo.
+        Analiza transacción cruzando datos de Merchant, Description y MCC Description.
         """
         # 1. Extracción de datos
         merchant = (row.get("merchant") or "").strip()
         mcc = str(row.get("mcc") or "").strip()
         description = (row.get("description") or "").strip()
+        mcc_description = (row.get("mcc_description") or "").strip() # Nuevo campo crítico
         amount = row.get("amount")
 
-        # 2. PROMPT OPTIMIZADO
+        # 2. PROMPT OPTIMIZADO PARA ANÁLISIS CRUZADO
         system = (
-            f"Eres el Auditor Principal de Gastos ({self.model}). Tu conocimiento sobre marcas y comercios es vasto.\n"
+            f"Eres el Auditor Principal de Gastos ({self.model}).\n"
             "Tus objetivos:\n"
-            "1. IDENTIFICACIÓN PROFUNDA: Usa tu base de conocimiento para identificar si el comercio es un Casino, Club Nocturno, "
-            "Spa, Joyería o un sitio de riesgo, incluso si el nombre es abreviado.\n"
-            "2. LIMPIEZA DE INTERMEDIARIOS: Si ves 'SQ *', 'TST *', 'PAYPAL *', analiza el texto que sigue.\n"
-            "3. JUICIO BASADO EN CONOCIMIENTO: Si no conoces el comercio, juzga basándote estrictamente en el MCC y la descripción.\n"
-            "4. VALIDACIÓN DE REGLAS: Se te da un 'pre-flag' de reglas estáticas. Confírmalo o corrígelo con argumentos lógicos.\n"
+            "1. ANÁLISIS CRUZADO: Compara el 'Merchant' con 'Description' y 'MCC Description'. "
+            "A menudo, el Merchant es críptico (ej. 'SQ *VENDOR') pero la Description revela la verdad (ej. 'GOLF CLUB FEES').\n"
+            "2. DETECCIÓN DE RIESGOS OCULTOS: Busca palabras clave de riesgo (Casino, Club, Spa, Jewelry, NFL, Ticketmaster) "
+            "especialmente en el campo 'Description' y 'MCC Description'.\n"
+            "3. TOLERANCIA CERO: Si detectas Streaming, Apuestas, Deportes o Bienes Digitales en CUALQUIER campo, marca DIRECT_WARN.\n"
+            "4. VALIDACIÓN DE REGLAS: Confirma el flag previo basándote en la evidencia de los 3 campos de texto.\n"
             "\n"
             "Salida JSON estricta: { category, severity, reason }"
         )
 
         payload = {
             "merchant": merchant,
+            "description": description,      # Campo foco
+            "mcc_description": mcc_description, # Campo foco
             "mcc": mcc,
-            "description": description,
             "amount": amount,
             "pre_flag": row.get("flag", "OK"),
             "pre_reason": row.get("reasons", "")
         }
 
         user_msg = (
-            f"Analiza: '{merchant}'.\n"
-            f"Reglas previas indican: {row.get('flag')} ({row.get('reasons')}).\n"
-            "¿Es correcto? Usa tu conocimiento interno para validar."
+            f"Analiza este gasto.\n"
+            f"Merchant: '{merchant}'\n"
+            f"Desc: '{description}'\n"
+            f"MCC Desc: '{mcc_description}'\n"
+            f"Reglas previas: {row.get('flag')} ({row.get('reasons')}).\n"
+            "¿Hay algo oculto en las descripciones? Valida."
             f"\nDATA: {json.dumps(payload, ensure_ascii=False)}"
         )
 
-        # 3. Llamada Directa usando self.model (controlado por .env)
+        # 3. Llamada
         resp = self.client.chat.completions.create(
             model=self.model,
             temperature=0.1,
@@ -101,16 +94,14 @@ class AzureFoundryClient:
             ],
         )
 
-        # 4. Procesamiento de la respuesta (Parsing)
+        # 4. Parsing
         text = (resp.choices[0].message.content or "").strip()
         data = self._safe_parse_json(text)
 
-        # Validación de seguridad de la respuesta
         severity = str(data.get("severity", "POSSIBLE_WARN")).strip()
         if severity not in ("OK", "POSSIBLE_WARN", "DIRECT_WARN"):
             severity = "POSSIBLE_WARN"
 
-        # 5. Retorno
         return AIResult(
             category=str(data.get("category", "Uncategorized")).strip(),
             severity=severity,
@@ -118,28 +109,11 @@ class AzureFoundryClient:
             web_evidence=None
         )
 
-    # -----------------------------
-    # Helpers
-    # -----------------------------
     def _safe_parse_json(self, text: str) -> dict[str, Any]:
-        """
-        Intenta parsear JSON.
-        Si viene con basura alrededor, intenta extraer el primer bloque {...}.
-        """
-        if not text:
-            return {}
-
-        # Caso ideal: puro JSON
-        try:
-            return json.loads(text)
-        except Exception:
-            pass
-
-        # Extraer bloque {...}
+        if not text: return {}
+        try: return json.loads(text)
+        except: pass
         m = re.search(r"\{.*\}", text, re.DOTALL)
-        if not m:
-            return {}
-        try:
-            return json.loads(m.group(0))
-        except Exception:
-            return {}
+        if not m: return {}
+        try: return json.loads(m.group(0))
+        except: return {}

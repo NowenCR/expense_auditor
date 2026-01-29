@@ -30,36 +30,45 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
     content_matched = pd.Series(False, index=out.index)
     allow_mask = pd.Series(False, index=out.index)
 
-    # 1. ALLOWLIST SIMPLE (Strings)
-    if catalog.allowlist_merchants and "merchant" in out.columns:
-        m = out["merchant"].str.lower()
+    # Preparar columnas de texto para búsqueda (rellenar vacíos)
+    col_merchant = out["merchant"].astype(str) if "merchant" in out.columns else pd.Series("", index=out.index)
+    col_desc = out["description"].astype(str) if "description" in out.columns else pd.Series("", index=out.index)
+    col_mcc_desc = out["mcc_description"].astype(str) if "mcc_description" in out.columns else pd.Series("", index=out.index)
+
+    # 1. ALLOWLIST SIMPLE (Strings) - Solo en Merchant (para evitar falsos positivos por descripciones genéricas)
+    if catalog.allowlist_merchants:
+        m = col_merchant.str.lower()
         for a in catalog.allowlist_merchants:
             if a.strip():
                 allow_mask |= m.str.contains(a.lower(), regex=False)
 
-    # 2. ALLOWLIST PATTERNS (Regex Avanzado) - NUEVO
-    # Aquí implementamos la lógica "Hotel SI, Disney NO" usando Regex
-    if catalog.allowlist_patterns and "merchant" in out.columns:
-        m = out["merchant"].astype(str)
+    # 2. ALLOWLIST PATTERNS (Regex Avanzado) - Solo en Merchant
+    if catalog.allowlist_patterns:
         for rule in catalog.allowlist_patterns:
             try:
-                # Regex=True permite lookaheads como (?!.*disney)
-                mask = m.str.contains(rule.pattern, case=False, na=False, regex=True)
+                mask = col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True)
                 allow_mask |= mask
             except Exception:
                 pass
 
-    # 3. DISALLOWED KEYWORDS
-    if catalog.disallowed_keywords and "merchant" in out.columns:
-        m = out["merchant"].astype(str)
+    # 3. DISALLOWED KEYWORDS (Búsqueda en Merchant OR Description OR MCC Description)
+    if catalog.disallowed_keywords:
         for pat in catalog.disallowed_keywords:
-            mask = m.str.contains(pat, case=False, na=False, regex=True)
+            # Buscar en las 3 columnas
+            mask_merch = col_merchant.str.contains(pat, case=False, na=False, regex=True)
+            mask_desc = col_desc.str.contains(pat, case=False, na=False, regex=True)
+            mask_mcc = col_mcc_desc.str.contains(pat, case=False, na=False, regex=True)
+            
+            mask = mask_merch | mask_desc | mask_mcc
+            
             if mask.any():
                 out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag.DIRECT_WARN)
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | Prohibido: " + pat
+                # Detallar dónde se encontró
+                reason_suffix = " | Prohibido: " + pat
+                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + reason_suffix
                 content_matched |= mask
 
-    # 4. MCC RULES
+    # 4. MCC RULES (Código numérico)
     if catalog.mcc_rules and "mcc" in out.columns:
         mcc_s = out["mcc"].astype(str)
         for rule in catalog.mcc_rules:
@@ -69,21 +78,25 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 5. KEYWORD RULES
-    if catalog.keyword_rules and "merchant" in out.columns:
-        m = out["merchant"].astype(str)
+    # 5. KEYWORD RULES (Búsqueda en Merchant OR Description OR MCC Description)
+    if catalog.keyword_rules:
         for rule in catalog.keyword_rules:
-            mask = m.str.contains(rule.pattern, case=False, na=False, regex=True)
+            # Buscar en las 3 columnas
+            mask_merch = col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True)
+            mask_desc = col_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
+            mask_mcc = col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
+            
+            mask = mask_merch | mask_desc | mask_mcc
+
             if mask.any():
                 out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 6. MCC DESCRIPTION RULES
-    if catalog.mcc_description_rules and "mcc_description" in out.columns:
-        desc = out["mcc_description"].astype(str)
+    # 6. MCC DESCRIPTION RULES (Específicas para mcc_description)
+    if catalog.mcc_description_rules:
         for rule in catalog.mcc_description_rules:
-            mask_pat = desc.str.contains(rule.pattern, case=False, na=False, regex=True)
+            mask_pat = col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
             mask_cond = _evaluate_condition(out, rule.condition)
             mask = mask_pat & mask_cond
             if mask.any():
@@ -94,14 +107,15 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
     # 7. PURCHASE CATEGORY RULES
     if catalog.purchase_category_rules and "purchase_category" in out.columns:
         pcat = out["purchase_category"].astype(str)
-        merchant = out["merchant"].astype(str)
         for rule in catalog.purchase_category_rules:
             mask_cat = pcat.str.lower() == rule.category.lower()
             mask_cond = _evaluate_condition(out, rule.condition)
+            
+            # Exclusiones solo miran Merchant (normalmente marcas como 'Florist')
             mask_excl = pd.Series(False, index=out.index)
             if rule.exclude_patterns:
                 for pat in rule.exclude_patterns:
-                    mask_excl |= merchant.str.contains(pat, case=False, na=False, regex=True)
+                    mask_excl |= col_merchant.str.contains(pat, case=False, na=False, regex=True)
             
             mask = (mask_cat & mask_cond) & (~mask_excl)
             if mask.any():
@@ -114,7 +128,6 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
         amt = pd.to_numeric(out["amount"], errors="coerce").fillna(0)
         for rule in catalog.amount_rules:
             mask_amt = amt >= float(rule.min_amount)
-            # Solo si no hubo match de contenido
             mask = mask_amt & (~content_matched)
             if mask.any():
                 out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))

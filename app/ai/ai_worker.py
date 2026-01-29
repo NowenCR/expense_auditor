@@ -61,7 +61,8 @@ class AIWorker(QObject):
                     "amount": row.get("amount"),
                     "date": row.get("date"),
                     "country": row.get("country") if "country" in out.columns else None,
-                    "flag": row.get("flag"),     
+                    "flag": row.get("flag"),
+                    "mcc_description": row.get("mcc_description"), # <--- AGREGAR ESTA LÍNEA     
                     "reasons": row.get("reasons") 
                 }
 
