@@ -1,115 +1,126 @@
 {
-  "version": "1.2.3",
+  "version": "1.4.0",
   "allowlist_merchants": [
     "UBER *TRIP",
     "MICROSOFT",
     "AMAZON WEB SERVICES"
   ],
+  "allowlist_patterns": [
+    {
+      "pattern": "(?i)^(?!.*disney).*(hotel|motel|inn|suites|resort).*",
+      "reason": "Hoteles/Alojamiento permitidos (Excluyendo Disney)"
+    },
+    {
+      "pattern": "(?i).*(bar|pub|lounge).*(restauran|grill|kitchen|food|pizza|tacos|sushi).*",
+      "reason": "Bar que también es Restaurante/Comida (Permitido)"
+    },
+    {
+      "pattern": "(?i).*(restauran|grill|kitchen|food|pizza|tacos|sushi).*(bar|pub|lounge).*",
+      "reason": "Restaurante que también es Bar (Permitido)"
+    }
+  ],
   "disallowed_keywords": [],
   "mcc_description_rules": [
     {
-      "pattern": "(?i)bar|lounge|disco|nightclub|tavern|alcohol",
-      "condition": "amount > 500 AND purchase_category != 'Lodging'",
+      "pattern": "(?i)digital\\s+goods",
+      "severity": "DIRECT_WARN",
+      "reason": "Bienes Digitales / Suscripciones"
+    },
+    {
+      "pattern": "(?i)utilities|electric|gas|water|sanitary",
       "severity": "POSSIBLE_WARN",
-      "reason": "Bares/discotecas/tavernas con monto alto"
-    },
-    {
-      "pattern": "(?i)digital\\s+goods.*large",
-      "severity": "DIRECT_WARN",
-      "reason": "Digital Goods: Large Merchant (ej. APPLE.COM)"
-    },
-    {
-      "pattern": "(?i)digital\\s+goods.*(media|books|movies|music)",
-      "severity": "DIRECT_WARN",
-      "reason": "Digital Goods: Media/Books/Movies/Music"
-    },
-    {
-      "pattern": "(?i)digital\\s+goods.*games",
-      "severity": "DIRECT_WARN",
-      "reason": "Digital Goods: Games"
-    },
-    {
-      "pattern": "(?i)dental|ophthalmic|medical\\s+equip|supplies",
-      "severity": "DIRECT_WARN",
-      "reason": "Gasto médico/insumos médicos"
-    },
-    {
-      "pattern": "(?i)other\\s+services.*not.*classified",
-      "severity": "DIRECT_WARN",
-      "reason": "Other Services NEC"
-    },
-    {
-      "pattern": "(?i)video\\s+game\\s+arcades?|establishments",
-      "severity": "DIRECT_WARN",
-      "reason": "Video Game Arcades"
-    },
-    {
-      "pattern": "(?i)tourist.*(attraction|exhibit)",
-      "severity": "DIRECT_WARN",
-      "reason": "Atracciones turísticas"
+      "reason": "Servicios Públicos (Revisar)"
     }
   ],
   "purchase_category_rules": [
     {
       "category": "Entertainment",
       "severity": "DIRECT_WARN",
-      "reason": "Entretenimiento (Floristerías permitidas)",
-      "exclude_patterns": [
-        "(?i)flowers?",
-        "(?i)florist",
-        "(?i)bouquets?",
-        "(?i)arrangements?"
-      ]
-    },
-    {
-      "category": "Health Services And Supplies",
-      "severity": "DIRECT_WARN",
-      "reason": "Servicios y suministros de salud"
-    },
-    {
-      "category": "Clothing/Shoes/Uniforms",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Ropa y calzado — validar uso"
-    },
-    {
-      "category": "Miscellaneous",
-      "condition": "merchant ~= '(?i)walmart' AND amount > 1000",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Misc — Walmart sobre $1000"
+      "reason": "Entretenimiento General"
     }
   ],
   "mcc_rules": [
     {
       "mcc": "7995",
       "severity": "DIRECT_WARN",
-      "reason": "Gambling MCC detectado"
+      "reason": "Apuestas / Gambling"
+    },
+    {
+      "mcc": "4900",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Utilities / Servicios Públicos"
     }
   ],
   "keyword_rules": [
     {
-      "pattern": "(?i)casino|bet|gambling|stake",
+      "pattern": "(?i)apple\\s*com\\s*bill|apple\\.com",
       "severity": "DIRECT_WARN",
-      "reason": "Keyword de apuestas"
+      "reason": "APPLE COMBILL (Tolerancia Cero)"
+    },
+    {
+      "pattern": "(?i)amazon(?!.*web\\s*services)|ebay|aliexpress|temu|shopify|mercado\\s*libre|shein",
+      "severity": "DIRECT_WARN",
+      "reason": "Compras Online (Retail)"
+    },
+    {
+      "pattern": "(?i)netflix|hbo|hulu|disney\\s*plus|disney\\+|spotify|apple\\s*tv|prime\\s*video|roku|youtube",
+      "severity": "DIRECT_WARN",
+      "reason": "Suscripción / Streaming"
+    },
+    {
+      "pattern": "(?i)nfl|nba|mlb|nhl|fifa|uefa|chicago\\s*bears|lakers|bulls|yankees|cowboys|49ers|patriots",
+      "severity": "DIRECT_WARN",
+      "reason": "Deportes Profesionales / Equipos"
+    },
+    {
+      "pattern": "(?i)ticketmaster|stubhub|seatgeek|vividseats|ticketing|box\\s*office|eventbrite",
+      "severity": "DIRECT_WARN",
+      "reason": "Tickets / Entradas a eventos"
+    },
+    {
+      "pattern": "(?i)golf|pga\\b|country\\s*club|green\\s*fee|driving\\s*range",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Golf / Country Club (Investigar)"
+    },
+    {
+      "pattern": "(?i)disney|resort\\s*world",
+      "severity": "DIRECT_WARN",
+      "reason": "Disney (Hoteles/Parques no permitidos)"
+    },
+    {
+      "pattern": "(?i)bar\\b|lounge|nightclub|pub\\b|liquor|alcohol|beer|wine|tavern",
+      "severity": "DIRECT_WARN",
+      "reason": "Alcohol / Vida Nocturna (Sin referencia a comida)"
+    },
+    {
+      "pattern": "(?i)water|electric|power|gas\\b|energy|cfe\\b|comision\\s*federal|agua",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Pago de Servicios (Agua/Luz/Gas)"
+    },
+    {
+      "pattern": "(?i)casino|bet|gambling|stake|sportsbook",
+      "severity": "DIRECT_WARN",
+      "reason": "Apuestas / Casino"
+    },
+    {
+      "pattern": "(?i)spa\\b|massage|sauna",
+      "severity": "DIRECT_WARN",
+      "reason": "Spa y Masajes"
+    },
+    {
+      "pattern": "(?i)clock|jewelry|watch|silverware|rolex|gucci|vuitton",
+      "severity": "DIRECT_WARN",
+      "reason": "Joyería / Lujo"
+    },
+    {
+      "pattern": "(?i)tinder|bumble|match\\.com|dating",
+      "severity": "DIRECT_WARN",
+      "reason": "Apps de Citas"
     },
     {
       "pattern": "(?i)gift\\s*card|giftcard",
       "severity": "POSSIBLE_WARN",
       "reason": "Posible gift card"
-    },
-    {
-      "pattern": "(?i)joinmorning\\.club",
-      "severity": "DIRECT_WARN",
-      "reason": "Other Services NEC — sitio no clasificado"
-    },
-    {
-      "pattern": "(?i)disney|resort",
-      "severity": "DIRECT_WARN",
-      "reason": "Disney/Resorts detectado en nombre de comercio"
-    },
-    {
-      "pattern": "(?i)clock|jewelry|watch|silverware",
-      "severity": "DIRECT_WARN",
-      "reason": "Joyería/relojería detectado en nombre de comercio"
     }
   ],
   "amount_rules": [
@@ -117,7 +128,7 @@
       "scope": "global",
       "min_amount": 2000.0,
       "severity": "POSSIBLE_WARN",
-      "reason": "Monto alto global (>=2000)"
+      "reason": "Monto alto global (>=2000) - Revisión genérica"
     }
   ]
 }
