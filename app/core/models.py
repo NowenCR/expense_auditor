@@ -15,7 +15,8 @@ class KeywordRule(BaseModel):
     reason: str
 
 class AmountRule(BaseModel):
-    scope: Literal["global"] = "global"
+    # CORRECCIÓN: Cambiado de Literal["global"] a str para permitir "category:Dining"
+    scope: str = "global"
     min_amount: float
     severity: Severity
     reason: str
@@ -33,7 +34,6 @@ class PurchaseCategoryRule(BaseModel):
     reason: str
     exclude_patterns: List[str] = Field(default_factory=list)
 
-# --- NUEVO MODELO PARA SOPORTAR REGEX EN ALLOWLIST ---
 class AllowlistPattern(BaseModel):
     pattern: str
     reason: str
@@ -43,7 +43,7 @@ class Catalog(BaseModel):
     
     # Listas blancas
     allowlist_merchants: List[str] = Field(default_factory=list) # Exact match
-    allowlist_patterns: List[AllowlistPattern] = Field(default_factory=list) # Regex match (Nuevo)
+    allowlist_patterns: List[AllowlistPattern] = Field(default_factory=list) # Regex match
     
     # Listas negras
     disallowed_keywords: List[str] = Field(default_factory=list)
@@ -56,4 +56,4 @@ class Catalog(BaseModel):
     purchase_category_rules: List[PurchaseCategoryRule] = Field(default_factory=list)
 
     def to_dict(self) -> Dict:
-        return self.model_dump()    
+        return self.model_dump()

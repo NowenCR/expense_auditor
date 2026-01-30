@@ -20,6 +20,7 @@ class AIResult:
 class AzureFoundryClient:
     """
     Cliente optimizado para análisis profundo de texto (Merchant + Description + MCC Desc).
+    Incluye lógica avanzada de desambiguación de entidades deportivas.
     """
 
     def __init__(self):
@@ -47,27 +48,28 @@ class AzureFoundryClient:
         merchant = (row.get("merchant") or "").strip()
         mcc = str(row.get("mcc") or "").strip()
         description = (row.get("description") or "").strip()
-        mcc_description = (row.get("mcc_description") or "").strip() # Nuevo campo crítico
+        mcc_description = (row.get("mcc_description") or "").strip()
         amount = row.get("amount")
 
-        # 2. PROMPT OPTIMIZADO PARA ANÁLISIS CRUZADO
+        # 2. PROMPT OPTIMIZADO PARA ANÁLISIS CRUZADO Y DESAMBIGUACIÓN DE DEPORTES
         system = (
             f"Eres el Auditor Principal de Gastos ({self.model}).\n"
             "Tus objetivos:\n"
-            "1. ANÁLISIS CRUZADO: Compara el 'Merchant' con 'Description' y 'MCC Description'. "
-            "A menudo, el Merchant es críptico (ej. 'SQ *VENDOR') pero la Description revela la verdad (ej. 'GOLF CLUB FEES').\n"
-            "2. DETECCIÓN DE RIESGOS OCULTOS: Busca palabras clave de riesgo (Casino, Club, Spa, Jewelry, NFL, Ticketmaster) "
-            "especialmente en el campo 'Description' y 'MCC Description'.\n"
-            "3. TOLERANCIA CERO: Si detectas Streaming, Apuestas, Deportes o Bienes Digitales en CUALQUIER campo, marca DIRECT_WARN.\n"
-            "4. VALIDACIÓN DE REGLAS: Confirma el flag previo basándote en la evidencia de los 3 campos de texto.\n"
+            "1. ANÁLISIS CRUZADO: Compara el 'Merchant' con 'Description' y 'MCC Description'.\n"
+            "2. DESAMBIGUACIÓN DE DEPORTES (CRÍTICO): Muchos restaurantes se llaman como equipos (ej. 'Real Madrid Cafe', 'Cowboys Saloon', 'Manchester Diner'). "
+            "Usa tu conocimiento global para determinar si el merchant es realmente una entidad deportiva (Entradas, Merchandising, Estadio) "
+            "o simplemente un bar/restaurante temático o ubicado en esa ciudad. "
+            "Si es comida/restaurante -> OK (Categoría: Alimentación). Si son tickets/jerseys -> DIRECT_WARN (Categoría: Deportes).\n"
+            "3. DETECCIÓN DE RIESGOS: Streaming, Apuestas, Bienes Digitales -> DIRECT_WARN.\n"
+            "4. VALIDACIÓN DE REGLAS: Si el flag previo dice 'Deportes' pero tú ves que es un restaurante, CORRIGELO a 'OK'.\n"
             "\n"
             "Salida JSON estricta: { category, severity, reason }"
         )
 
         payload = {
             "merchant": merchant,
-            "description": description,      # Campo foco
-            "mcc_description": mcc_description, # Campo foco
+            "description": description,
+            "mcc_description": mcc_description,
             "mcc": mcc,
             "amount": amount,
             "pre_flag": row.get("flag", "OK"),
@@ -80,14 +82,14 @@ class AzureFoundryClient:
             f"Desc: '{description}'\n"
             f"MCC Desc: '{mcc_description}'\n"
             f"Reglas previas: {row.get('flag')} ({row.get('reasons')}).\n"
-            "¿Hay algo oculto en las descripciones? Valida."
+            "Verifica si es un falso positivo de deportes."
             f"\nDATA: {json.dumps(payload, ensure_ascii=False)}"
         )
 
         # 3. Llamada
         resp = self.client.chat.completions.create(
             model=self.model,
-            temperature=0.1,
+            temperature=0.1,  # Bajo para mayor determinismo
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_msg},
@@ -98,7 +100,8 @@ class AzureFoundryClient:
         text = (resp.choices[0].message.content or "").strip()
         data = self._safe_parse_json(text)
 
-        severity = str(data.get("severity", "POSSIBLE_WARN")).strip()
+        # Validación de severidad segura
+        severity = str(data.get("severity", "POSSIBLE_WARN")).strip().upper()
         if severity not in ("OK", "POSSIBLE_WARN", "DIRECT_WARN"):
             severity = "POSSIBLE_WARN"
 

@@ -35,28 +35,24 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
     col_desc = out["description"].astype(str) if "description" in out.columns else pd.Series("", index=out.index)
     col_mcc_desc = out["mcc_description"].astype(str) if "mcc_description" in out.columns else pd.Series("", index=out.index)
 
-    # 1. ALLOWLIST SIMPLE (Strings) - Solo Merchant
+    # 1. ALLOWLIST SIMPLE (Strings)
     if catalog.allowlist_merchants:
         m = col_merchant.str.lower()
         for a in catalog.allowlist_merchants:
             if a.strip():
                 allow_mask |= m.str.contains(a.lower(), regex=False)
 
-    # 2. ALLOWLIST PATTERNS (Regex Contextual - MEJORADO)
-    # Fusionamos todo el texto para que el Regex pueda validar el contexto completo
-    # Esto permite detectar "Eating Places" PERO bloquear si dice "Topgolf" en el merchant
+    # 2. ALLOWLIST PATTERNS (Regex Contextual)
     if catalog.allowlist_patterns:
         combined_context = (col_merchant + " " + col_desc + " " + col_mcc_desc).str.lower()
-        
         for rule in catalog.allowlist_patterns:
             try:
-                # Aplicamos el patrón al contexto completo
                 mask = combined_context.str.contains(rule.pattern, case=False, na=False, regex=True)
                 allow_mask |= mask
             except Exception:
                 pass
 
-    # 3. DISALLOWED KEYWORDS (Multicolumna)
+    # 3. DISALLOWED KEYWORDS
     if catalog.disallowed_keywords:
         for pat in catalog.disallowed_keywords:
             mask_merch = col_merchant.str.contains(pat, case=False, na=False, regex=True)
@@ -64,7 +60,6 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
             mask_mcc = col_mcc_desc.str.contains(pat, case=False, na=False, regex=True)
             
             mask = mask_merch | mask_desc | mask_mcc
-            
             if mask.any():
                 out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag.DIRECT_WARN)
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | Prohibido: " + pat
@@ -80,7 +75,7 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 5. KEYWORD RULES (Multicolumna)
+    # 5. KEYWORD RULES
     if catalog.keyword_rules:
         for rule in catalog.keyword_rules:
             mask_merch = col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True)
@@ -122,12 +117,32 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
                 content_matched |= mask
 
-    # 8. AMOUNT RULES
+    # 8. AMOUNT RULES (LOGICA ACTUALIZADA PARA SCOPE)
     if catalog.amount_rules and "amount" in out.columns:
         amt = pd.to_numeric(out["amount"], errors="coerce").fillna(0)
+        
+        # Preparamos columna de categorías normalizada por si se usa en scope
+        if "purchase_category" in out.columns:
+            pcat_series = out["purchase_category"].astype(str).str.lower().str.strip()
+        else:
+            pcat_series = pd.Series("", index=out.index)
+
         for rule in catalog.amount_rules:
+            # Filtro por monto
             mask_amt = amt >= float(rule.min_amount)
-            mask = mask_amt & (~content_matched)
+            
+            # Filtro por Scope
+            scope_mask = pd.Series(True, index=out.index) # Default global
+            rule_scope = str(rule.scope).lower().strip()
+            
+            if rule_scope.startswith("category:"):
+                # Extraer "Dining" de "category:Dining"
+                target_cat = rule_scope.split(":", 1)[1].strip()
+                scope_mask = (pcat_series == target_cat)
+            
+            # Aplicar reglas: Monto + Scope + Que no haya sido matcheado ya (opcional)
+            mask = mask_amt & scope_mask & (~content_matched)
+            
             if mask.any():
                 out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
                 out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason

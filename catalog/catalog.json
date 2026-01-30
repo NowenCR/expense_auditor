@@ -1,5 +1,5 @@
 {
-  "version": "1.5.3",
+  "version": "1.6.0",
   "allowlist_merchants": [
     "UBER *TRIP",
     "MICROSOFT",
@@ -23,8 +23,8 @@
       "reason": "Establecimientos de comida/restaurantes (Permitido aunque diga Bar)"
     },
     {
-      "pattern": "(?i)^(?!.*(topgolf|dave\\s*&\\s*buster|main\\s*event|bowlero|amf|lucky\\s*strike|round1|pinstripes|chuck\\s*e\\.?\\s*cheese|gameworks|arcade)).*eating\\s+and\\s+drinking\\s+places.*",
-      "reason": "Eating and Drinking Places (Permitido SOLO si NO es venue de entretenimiento)"
+      "pattern": "(?i)^(?!.*(topgolf|dave\\s*&\\s*buster|main\\s*event|bowlero|amf|lucky\\s*strike|round1|pinstripes|chuck\\s*e\\.?\\s*cheese|gameworks|arcade)).*eating\\s+and\\s+drinking.*",
+      "reason": "Eating and Drinking Places (Permitido aunque falte la palabra 'places')"
     }
   ],
   "disallowed_keywords": [],
@@ -32,12 +32,132 @@
     {
       "pattern": "(?i)BAR,\\s*LOUNGE,\\s*DISCO,\\s*NIGHTCLUB,\\s*TAVERN.*ALCOHOLIC\\s*DRINKS",
       "severity": "DIRECT_WARN",
-      "reason": "MCC Description: Bar/Alcohol Puro (5813)"
+      "reason": "MCC Prohibido: Bar/Lounge/Disco/Nightclub (Alcohol)"
     },
     {
       "pattern": "(?i)digital\\s+goods",
       "severity": "DIRECT_WARN",
       "reason": "Bienes Digitales / Suscripciones"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*golf\\s*courses?-?\\s*public",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Golf Courses - Public (excluye florists)"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*recreation\\s*services?.*not\\s*elsewhere\\s*classified",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Recreation Services N/E (excluye florists)"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*motion\\s*picture\\s*theaters?",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Cines (excluye florists)"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*(amusement\\s*parks?|carnivals?|circuses?|fortune\\s*tellers?)",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Parques/Carnavales/Circos (excluye florists)"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*(bands?,\\s*orchestras?,\\s*and\\s*miscellaneous\\s*entertainers?|bands?|orchestras?|entertainers?)",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Bandas/Orquestas/Entretenedores (excluye florists)"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*tourist\\s*attractions?\\s*and\\s*exhibits?",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Atracciones/Exhibiciones (excluye florists)"
+    },
+    {
+      "pattern": "(?i)^(?!.*florist).*(video\\s*game\\s*arcades?|arcades?/establishments?)",
+      "severity": "DIRECT_WARN",
+      "reason": "Entretenimiento: Video Game Arcades (excluye florists)"
+    },
+    {
+      "pattern": "(?i)health\\s*practitioners?,\\s*medical\\s*sr?v?c?s?-?not\\s*elsewhere\\s*classified",
+      "severity": "DIRECT_WARN",
+      "reason": "Salud: Practitioners/Servicios Médicos N/E"
+    },
+    {
+      "pattern": "(?i)chiropractors?",
+      "severity": "DIRECT_WARN",
+      "reason": "Salud: Quiroprácticos"
+    },
+    {
+      "pattern": "(?i)hospitals?",
+      "severity": "DIRECT_WARN",
+      "reason": "Salud: Hospitales"
+    },
+    {
+      "pattern": "(?i)^(?!.*(laundry|dry\\s*clean)).*accessory\\s*and\\s*apparel\\s*stores?-?\\s*miscellaneous",
+      "severity": "DIRECT_WARN",
+      "reason": "Ropa/Accesorios: Misc (sin laundry/dry clean)"
+    },
+    {
+      "pattern": "(?i)^(?!.*(laundry|dry\\s*clean)).*shoe\\s*stores?",
+      "severity": "DIRECT_WARN",
+      "reason": "Ropa/Calzado: Shoe Stores (sin laundry/dry clean)"
+    },
+    {
+      "pattern": "(?i)^(?!.*(laundry|dry\\s*clean)).*(mens|women'?s)\\s*clothing\\s*stores?",
+      "severity": "DIRECT_WARN",
+      "reason": "Ropa: Tiendas de Hombre/Mujer (sin laundry/dry clean)"
+    },
+    {
+      "pattern": "(?i)clock,?\\s*jewelr?y,?\\s*watch\\s*and\\s*silverware\\s*store",
+      "severity": "DIRECT_WARN",
+      "reason": "Misceláneo: Relojes/Joyería/Platería (todas las transacciones)"
+    },
+    {
+      "pattern": "(?i)gift,?\\s*card,?\\s*novelty\\s*and\\s*souvenir\\s*shops?",
+      "severity": "DIRECT_WARN",
+      "reason": "Misceláneo: Regalos/Novelty/Souvenirs"
+    },
+    {
+      "pattern": "(?i)cosmetic\\s*stores?",
+      "severity": "DIRECT_WARN",
+      "reason": "Misceláneo: Tiendas de Cosméticos"
+    },
+    {
+      "pattern": "(?i)other\\s*services?\\s*\\(not\\s*elsewhere\\s*classified\\)",
+      "severity": "DIRECT_WARN",
+      "reason": "Misceláneo: Otros servicios N/E (todas las transacciones)"
+    },
+    {
+      "pattern": "(?i)digital\\s*goods?\\s*[-–—]?\\s*(media|books?|movies?|music)",
+      "severity": "DIRECT_WARN",
+      "reason": "Bienes Digitales: Media/Libros/Películas/Música"
+    },
+    {
+      "pattern": "(?i)large\\s*digital\\s*goods?\\s*merchant",
+      "severity": "DIRECT_WARN",
+      "reason": "Bienes Digitales: Gran Comerciante Digital"
+    },
+    {
+      "pattern": "(?i)digital\\s*goods?\\s*[-–—]?\\s*games?",
+      "severity": "DIRECT_WARN",
+      "reason": "Bienes Digitales: Juegos"
+    },
+    {
+      "pattern": "(?i)digital\\s*goods?\\s*[-–—]?\\s*applications?\\s*(?!.*games?)",
+      "severity": "DIRECT_WARN",
+      "reason": "Bienes Digitales: Aplicaciones (excluye juegos)"
+    },
+    {
+      "pattern": "(?i)books?,\\s*periodicals?,\\s*and\\s*newspapers?",
+      "severity": "DIRECT_WARN",
+      "reason": "Oficina: Libros/Periódicos/Diarios"
+    },
+    {
+      "pattern": "(?i)computer\\s*software\\s*stores?",
+      "severity": "DIRECT_WARN",
+      "reason": "Oficina: Tiendas de Software"
+    },
+    {
+      "pattern": "(?i)disney\\s*resorts?",
+      "severity": "DIRECT_WARN",
+      "reason": "Lodging: Disney Resorts (No permitido)"
     }
   ],
   "purchase_category_rules": [
@@ -45,6 +165,11 @@
       "category": "Entertainment",
       "severity": "DIRECT_WARN",
       "reason": "Entretenimiento General"
+    },
+    {
+      "category": "Eating and Drinking Places",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Gasto elevado en restaurantes (ver regla por monto)"
     }
   ],
   "mcc_rules": [
@@ -66,9 +191,9 @@
       "reason": "Venta de Boletos / Tickets"
     },
     {
-      "pattern": "(?i)nfl|nba|mlb|nhl|fifa|uefa|premier\\s*league|la\\s*liga|liga\\s*mx|cowboys|raiders|yankees|fc\\s*barcelona|real\\s*madrid|manchester",
+      "pattern": "(?i)\\b(nfl|nba|mlb|nhl|fifa|uefa|premier\\s*league|la\\s*liga|liga\\s*mx|cowboys|raiders|yankees|fc\\s*barcelona|real\\s*madrid|manchester\\s*united|manchester\\s*city)\\b",
       "severity": "DIRECT_WARN",
-      "reason": "Deportes (Ligas/Equipos)"
+      "reason": "Deportes (Ligas/Equipos Detectados)"
     },
     {
       "pattern": "(?i)apple\\.com/bill",
@@ -86,9 +211,39 @@
       "reason": "Entretenimiento disfrazado de comida (Topgolf, Arcade, Bowling)"
     },
     {
-      "pattern": "(?i)disney",
+      "pattern": "(?i)disney|disney\\s*resorts?",
       "severity": "DIRECT_WARN",
       "reason": "Disney Detectado (No permitido)"
+    },
+    {
+      "pattern": "(?i)joinmorning\\s*club",
+      "severity": "DIRECT_WARN",
+      "reason": "Sitio de suscripción detectado (JOINMORNING CLUB)"
+    },
+    {
+      "pattern": "(?i)amazon\\s*prime",
+      "severity": "DIRECT_WARN",
+      "reason": "AMAZON PRIME (Suscripción)"
+    },
+    {
+      "pattern": "(?i)cnn\\s*news",
+      "severity": "DIRECT_WARN",
+      "reason": "Suscripción de noticias (CNN NEWS)"
+    },
+    {
+      "pattern": "(?i)eoti\\.org|eoti\\.org/\\s*refunds?|refunds?\\s*eoti",
+      "severity": "POSSIBLE_WARN",
+      "reason": "Sitio/Refund detectado (EOTI.ORG)"
+    },
+    {
+      "pattern": "(?i)google.*scanner.*pdf",
+      "severity": "DIRECT_WARN",
+      "reason": "Compra digital (GOOGLE Scanner PDF)"
+    },
+    {
+      "pattern": "(?i)openai\\s*chatgpt\\s*subscr|chatgpt\\s*subscription",
+      "severity": "DIRECT_WARN",
+      "reason": "OPENAI CHATGPT SUBSCR (Suscripción Digital)"
     }
   ],
   "amount_rules": [
@@ -97,6 +252,12 @@
       "min_amount": 2000.0,
       "severity": "POSSIBLE_WARN",
       "reason": "Monto alto global (>=2000)"
+    },
+    {
+      "scope": "category:Dining",
+      "min_amount": 5000.0,
+      "severity": "DIRECT_WARN",
+      "reason": "Eating and Drinking Places >=5000 (revisar casinos y excluir hoteles)"
     }
   ]
 }
