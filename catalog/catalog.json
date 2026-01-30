@@ -1,5 +1,5 @@
 {
-  "version": "1.4.3",
+  "version": "1.5.3",
   "allowlist_merchants": [
     "UBER *TRIP",
     "MICROSOFT",
@@ -7,33 +7,37 @@
   ],
   "allowlist_patterns": [
     {
-      "pattern": "(?i)^(?!.*disney).*(hotel|motel|inn|suites|resort).*",
-      "reason": "Hoteles/Alojamiento permitidos (Excluyendo Disney)"
+      "pattern": "(?i).*walmart.*",
+      "reason": "Walmart Permitido Siempre (Regla Maestra)"
     },
     {
-      "pattern": "(?i).*(bar|pub|lounge).*(restauran|grill|kitchen|food|pizza|tacos|sushi).*",
-      "reason": "Bar que también es Restaurante/Comida (Permitido)"
+      "pattern": "(?i).*(airline|airways|air\\s*lines|air\\s*carriers|aero|aviation|fly|flight|delta\\s*air|united\\s*air|american\\s*air|southwest|latam|avianca|aeromexico|volaris|copa|iberia|british\\s*air|air\\s*france|lufthansa|klm|emirates|qatar|etihad).*",
+      "reason": "Aerolíneas y Viajes en Avión (Permitido Siempre)"
     },
     {
-      "pattern": "(?i).*(restauran|grill|kitchen|food|pizza|tacos|sushi).*(bar|pub|lounge).*",
-      "reason": "Restaurante que también es Bar (Permitido)"
+      "pattern": "(?i)^(?!.*disney).*(hotel|inn|lodging|motel|resort|marriott|courtyard|fairfield|residence\\s*inn|hilton|doubletree|hampton|hyatt|westin|sheraton|holiday\\s*inn|comfort\\s*inn|candlewood|delta\\s*hotels|days\\s*inn|americinn|best\\s*western).*",
+      "reason": "Hoteles y Alojamiento permitidos (Excluyendo Disney)"
     },
     {
-      "pattern": "(?i)^(?!.*(topgolf|golf|bowl|arcade|amusement|ticket|theat|cinema|stadium|arena|casino|bet|wager|fun|play|zone|rec)).*eating\\s+and\\s+drinking\\s+places.*",
-      "reason": "Eating and Drinking Places (Permitido SOLO si NO es entretenimiento/golf/juego)"
+      "pattern": "(?i).*(restaurant|restaurante|grill|kitchen|diner|cafe|bistro|pizza|taco|sushi|burger|bbq|cantina|food|coffee|bakery|deli|sandwich|panini).*",
+      "reason": "Establecimientos de comida/restaurantes (Permitido aunque diga Bar)"
+    },
+    {
+      "pattern": "(?i)^(?!.*(topgolf|dave\\s*&\\s*buster|main\\s*event|bowlero|amf|lucky\\s*strike|round1|pinstripes|chuck\\s*e\\.?\\s*cheese|gameworks|arcade)).*eating\\s+and\\s+drinking\\s+places.*",
+      "reason": "Eating and Drinking Places (Permitido SOLO si NO es venue de entretenimiento)"
     }
   ],
   "disallowed_keywords": [],
   "mcc_description_rules": [
     {
+      "pattern": "(?i)BAR,\\s*LOUNGE,\\s*DISCO,\\s*NIGHTCLUB,\\s*TAVERN.*ALCOHOLIC\\s*DRINKS",
+      "severity": "DIRECT_WARN",
+      "reason": "MCC Description: Bar/Alcohol Puro (5813)"
+    },
+    {
       "pattern": "(?i)digital\\s+goods",
       "severity": "DIRECT_WARN",
       "reason": "Bienes Digitales / Suscripciones"
-    },
-    {
-      "pattern": "(?i)utilities|electric|gas|water|sanitary",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Servicios Públicos (Revisar)"
     }
   ],
   "purchase_category_rules": [
@@ -48,83 +52,43 @@
       "mcc": "7995",
       "severity": "DIRECT_WARN",
       "reason": "Apuestas / Gambling"
-    },
-    {
-      "mcc": "4900",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Utilities / Servicios Públicos"
     }
   ],
   "keyword_rules": [
     {
-      "pattern": "(?i)apple\\s*com\\s*bill|apple\\.com",
+      "pattern": "(?i)netflix|hbo|hulu|disney\\+|disney\\s*plus|paramount|apple\\s*tv|spotify|youtube|twitch|crunchyroll|peacock",
       "severity": "DIRECT_WARN",
-      "reason": "APPLE COMBILL (Tolerancia Cero)"
+      "reason": "Streaming / Suscripción Detectada"
     },
     {
-      "pattern": "(?i)amazon(?!.*web\\s*services)|ebay|aliexpress|temu|shopify|mercado\\s*libre|shein",
+      "pattern": "(?i)ticketmaster|axs|seatgeek|stubhub",
       "severity": "DIRECT_WARN",
-      "reason": "Compras Online (Retail)"
+      "reason": "Venta de Boletos / Tickets"
     },
     {
-      "pattern": "(?i)netflix|hbo|hulu|disney\\s*plus|disney\\+|spotify|apple\\s*tv|prime\\s*video|roku|youtube",
+      "pattern": "(?i)nfl|nba|mlb|nhl|fifa|uefa|premier\\s*league|la\\s*liga|liga\\s*mx|cowboys|raiders|yankees|fc\\s*barcelona|real\\s*madrid|manchester",
       "severity": "DIRECT_WARN",
-      "reason": "Suscripción / Streaming"
+      "reason": "Deportes (Ligas/Equipos)"
     },
     {
-      "pattern": "(?i)nfl|nba|mlb|nhl|fifa|uefa|chicago\\s*bears|lakers|bulls|yankees|cowboys|49ers|patriots",
+      "pattern": "(?i)apple\\.com/bill",
       "severity": "DIRECT_WARN",
-      "reason": "Deportes Profesionales / Equipos"
+      "reason": "APPLE.COM/BILL (Suscripción/Digital)"
     },
     {
-      "pattern": "(?i)ticketmaster|stubhub|seatgeek|vividseats|ticketing|box\\s*office|eventbrite",
+      "pattern": "(?i)amazon|ebay|aliexpress|temu|shein|mercado\\s*libre",
       "severity": "DIRECT_WARN",
-      "reason": "Tickets / Entradas a eventos"
+      "reason": "E-commerce / Marketplace (Posible uso personal)"
     },
     {
-      "pattern": "(?i)golf|pga\\b|country\\s*club|green\\s*fee|driving\\s*range|topgolf",
+      "pattern": "(?i)topgolf|dave\\s*&\\s*buster|main\\s*event|bowlero|amf|lucky\\s*strike|round1|pinstripes|chuck\\s*e\\.?\\s*cheese|gameworks",
       "severity": "DIRECT_WARN",
-      "reason": "Golf / Topgolf / Country Club"
+      "reason": "Entretenimiento disfrazado de comida (Topgolf, Arcade, Bowling)"
     },
     {
-      "pattern": "(?i)disney|resort\\s*world",
+      "pattern": "(?i)disney",
       "severity": "DIRECT_WARN",
-      "reason": "Disney (Hoteles/Parques no permitidos)"
-    },
-    {
-      "pattern": "(?i)bar\\b|lounge|nightclub|pub\\b|liquor|alcohol|beer|wine|tavern",
-      "severity": "DIRECT_WARN",
-      "reason": "Alcohol / Vida Nocturna (Sin referencia a comida)"
-    },
-    {
-      "pattern": "(?i)water|electric|power|gas\\b|energy|cfe\\b|comision\\s*federal|agua",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Pago de Servicios (Agua/Luz/Gas)"
-    },
-    {
-      "pattern": "(?i)casino|bet|gambling|stake|sportsbook",
-      "severity": "DIRECT_WARN",
-      "reason": "Apuestas / Casino"
-    },
-    {
-      "pattern": "(?i)spa\\b|massage|sauna",
-      "severity": "DIRECT_WARN",
-      "reason": "Spa y Masajes"
-    },
-    {
-      "pattern": "(?i)clock|jewelry|watch|silverware|rolex|gucci|vuitton",
-      "severity": "DIRECT_WARN",
-      "reason": "Joyería / Lujo"
-    },
-    {
-      "pattern": "(?i)tinder|bumble|match\\.com|dating",
-      "severity": "DIRECT_WARN",
-      "reason": "Apps de Citas"
-    },
-    {
-      "pattern": "(?i)gift\\s*card|giftcard",
-      "severity": "POSSIBLE_WARN",
-      "reason": "Posible gift card"
+      "reason": "Disney Detectado (No permitido)"
     }
   ],
   "amount_rules": [
@@ -132,7 +96,7 @@
       "scope": "global",
       "min_amount": 2000.0,
       "severity": "POSSIBLE_WARN",
-      "reason": "Monto alto global (>=2000) - Revisión genérica"
+      "reason": "Monto alto global (>=2000)"
     }
   ]
 }

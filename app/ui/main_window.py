@@ -8,7 +8,8 @@ from PySide6.QtGui import QAction, QColor, QCloseEvent
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QComboBox, QProgressBar,
-    QTableWidget, QTableWidgetItem, QFrame, QLineEdit
+    QTableWidget, QTableWidgetItem, QFrame, QLineEdit, 
+    QAbstractItemView  # <--- IMPORT NECESARIO AGREGADO
 )
 
 from app.data.io_excel import list_sheets
@@ -234,6 +235,12 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("Tabla: usa filtros + búsqueda + paginación para navegar el dataset."))
         self.table = QTableWidget(0, 0)
+        
+        # --- MEJORA DE SCROLLING ---
+        # Scroll por pixeles en lugar de por ítems (columnas/filas) para navegación fluida
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        
         layout.addWidget(self.table, 1)
 
         # --- events
