@@ -5,6 +5,10 @@ from app.core.constants import Flag, FLAG_PRIORITY
 from app.core.models import Catalog
 
 def _combine_flags(curr_flag: pd.Series, new_flag: Flag) -> pd.Series:
+    """
+    Actualiza el flag solo si la nueva severidad es mayor que la actual.
+    (DIRECT_WARN > POSSIBLE_WARN > OK)
+    """
     return np.where(
         curr_flag.map(lambda x: FLAG_PRIORITY[Flag(x)]) < FLAG_PRIORITY[new_flag],
         new_flag.value,
@@ -24,25 +28,24 @@ def _evaluate_condition(df: pd.DataFrame, condition: str) -> pd.Series:
 
 def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
     out = df.copy()
-    out["flag"] = Flag.OK.value
-    out["reasons"] = ""
     
-    content_matched = pd.Series(False, index=out.index)
+    # =========================================================================
+    # PASO 1: CÁLCULO DE INMUNIDAD (ALLOWLIST)
+    # =========================================================================
     allow_mask = pd.Series(False, index=out.index)
-
-    # Preparar columnas de texto
+    
     col_merchant = out["merchant"].astype(str) if "merchant" in out.columns else pd.Series("", index=out.index)
     col_desc = out["description"].astype(str) if "description" in out.columns else pd.Series("", index=out.index)
     col_mcc_desc = out["mcc_description"].astype(str) if "mcc_description" in out.columns else pd.Series("", index=out.index)
-
-    # 1. ALLOWLIST SIMPLE (Strings)
+    
+    # 1.1 Allowlist Simple
     if catalog.allowlist_merchants:
         m = col_merchant.str.lower()
         for a in catalog.allowlist_merchants:
             if a.strip():
                 allow_mask |= m.str.contains(a.lower(), regex=False)
 
-    # 2. ALLOWLIST PATTERNS (Regex Contextual)
+    # 1.2 Allowlist Patterns
     if catalog.allowlist_patterns:
         combined_context = (col_merchant + " " + col_desc + " " + col_mcc_desc).str.lower()
         for rule in catalog.allowlist_patterns:
@@ -52,54 +55,88 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
             except Exception:
                 pass
 
-    # 3. DISALLOWED KEYWORDS
-    if catalog.disallowed_keywords:
-        for pat in catalog.disallowed_keywords:
-            mask_merch = col_merchant.str.contains(pat, case=False, na=False, regex=True)
-            mask_desc = col_desc.str.contains(pat, case=False, na=False, regex=True)
-            mask_mcc = col_mcc_desc.str.contains(pat, case=False, na=False, regex=True)
-            
-            mask = mask_merch | mask_desc | mask_mcc
-            if mask.any():
-                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag.DIRECT_WARN)
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | Prohibido: " + pat
-                content_matched |= mask
+    # =========================================================================
+    # PASO 2: ESTADO INICIAL
+    # =========================================================================
+    out["flag"] = Flag.OK.value
+    out["reasons"] = ""
+    out.loc[allow_mask, "reasons"] = "ALLOWLIST"
 
-    # 4. MCC RULES
-    if catalog.mcc_rules and "mcc" in out.columns:
-        mcc_s = out["mcc"].astype(str)
-        for rule in catalog.mcc_rules:
-            mask = (mcc_s == str(rule.mcc))
-            if mask.any():
-                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
-                content_matched |= mask
+    content_matched = pd.Series(False, index=out.index)
 
-    # 5. KEYWORD RULES
-    if catalog.keyword_rules:
-        for rule in catalog.keyword_rules:
-            mask_merch = col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True)
-            mask_desc = col_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
-            mask_mcc = col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
-            mask = mask_merch | mask_desc | mask_mcc
+    # =========================================================================
+    # PASO 3: APLICACIÓN DE REGLAS ESTÁNDAR
+    # =========================================================================
 
-            if mask.any():
-                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
-                content_matched |= mask
-
-    # 6. MCC DESCRIPTION RULES
+    # --- 3.1 MCC DESCRIPTION RULES ---
     if catalog.mcc_description_rules:
         for rule in catalog.mcc_description_rules:
             mask_pat = col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True)
             mask_cond = _evaluate_condition(out, rule.condition)
             mask = mask_pat & mask_cond
+
             if mask.any():
-                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
+                severity = Flag(rule.severity)
+                if severity == Flag.DIRECT_WARN:
+                    final_mask = mask
+                else:
+                    final_mask = mask & (~allow_mask)
+
+                if final_mask.any():
+                    out.loc[final_mask, "flag"] = _combine_flags(out.loc[final_mask, "flag"], severity)
+                    out.loc[final_mask, "reasons"] = out.loc[final_mask, "reasons"] + " | " + rule.reason
+                    content_matched |= final_mask
+
+    # --- 3.2 DISALLOWED KEYWORDS ---
+    if catalog.disallowed_keywords:
+        for pat in catalog.disallowed_keywords:
+            mask = (col_merchant.str.contains(pat, case=False, na=False, regex=True) |
+                    col_desc.str.contains(pat, case=False, na=False, regex=True) |
+                    col_mcc_desc.str.contains(pat, case=False, na=False, regex=True))
+            
+            if mask.any():
+                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag.DIRECT_WARN)
+                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | Prohibido: " + pat
                 content_matched |= mask
 
-    # 7. PURCHASE CATEGORY RULES
+    # --- 3.3 MCC RULES ---
+    if catalog.mcc_rules and "mcc" in out.columns:
+        mcc_s = out["mcc"].astype(str)
+        for rule in catalog.mcc_rules:
+            mask = (mcc_s == str(rule.mcc))
+            
+            if mask.any():
+                severity = Flag(rule.severity)
+                if severity == Flag.DIRECT_WARN:
+                    final_mask = mask
+                else:
+                    final_mask = mask & (~allow_mask)
+
+                if final_mask.any():
+                    out.loc[final_mask, "flag"] = _combine_flags(out.loc[final_mask, "flag"], severity)
+                    out.loc[final_mask, "reasons"] = out.loc[final_mask, "reasons"] + " | " + rule.reason
+                    content_matched |= final_mask
+
+    # --- 3.4 KEYWORD RULES ---
+    if catalog.keyword_rules:
+        for rule in catalog.keyword_rules:
+            mask = (col_merchant.str.contains(rule.pattern, case=False, na=False, regex=True) |
+                    col_desc.str.contains(rule.pattern, case=False, na=False, regex=True) |
+                    col_mcc_desc.str.contains(rule.pattern, case=False, na=False, regex=True))
+            
+            if mask.any():
+                severity = Flag(rule.severity)
+                if severity == Flag.DIRECT_WARN:
+                    final_mask = mask
+                else:
+                    final_mask = mask & (~allow_mask)
+
+                if final_mask.any():
+                    out.loc[final_mask, "flag"] = _combine_flags(out.loc[final_mask, "flag"], severity)
+                    out.loc[final_mask, "reasons"] = out.loc[final_mask, "reasons"] + " | " + rule.reason
+                    content_matched |= final_mask
+
+    # --- 3.5 PURCHASE CATEGORY RULES ---
     if catalog.purchase_category_rules and "purchase_category" in out.columns:
         pcat = out["purchase_category"].astype(str)
         for rule in catalog.purchase_category_rules:
@@ -112,46 +149,70 @@ def apply_rules(df: pd.DataFrame, catalog: Catalog) -> pd.DataFrame:
                     mask_excl |= col_merchant.str.contains(pat, case=False, na=False, regex=True)
             
             mask = (mask_cat & mask_cond) & (~mask_excl)
-            if mask.any():
-                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
-                content_matched |= mask
 
-    # 8. AMOUNT RULES (LOGICA ACTUALIZADA PARA SCOPE)
+            if mask.any():
+                severity = Flag(rule.severity)
+                if severity == Flag.DIRECT_WARN:
+                    final_mask = mask
+                else:
+                    final_mask = mask & (~allow_mask)
+
+                if final_mask.any():
+                    out.loc[final_mask, "flag"] = _combine_flags(out.loc[final_mask, "flag"], severity)
+                    out.loc[final_mask, "reasons"] = out.loc[final_mask, "reasons"] + " | " + rule.reason
+                    content_matched |= final_mask
+
+    # --- 3.6 AMOUNT RULES ---
     if catalog.amount_rules and "amount" in out.columns:
         amt = pd.to_numeric(out["amount"], errors="coerce").fillna(0)
-        
-        # Preparamos columna de categorías normalizada por si se usa en scope
-        if "purchase_category" in out.columns:
-            pcat_series = out["purchase_category"].astype(str).str.lower().str.strip()
-        else:
-            pcat_series = pd.Series("", index=out.index)
+        pcat_series = out["purchase_category"].astype(str).str.lower().str.strip() if "purchase_category" in out.columns else pd.Series("", index=out.index)
 
         for rule in catalog.amount_rules:
-            # Filtro por monto
             mask_amt = amt >= float(rule.min_amount)
             
-            # Filtro por Scope
-            scope_mask = pd.Series(True, index=out.index) # Default global
+            scope_mask = pd.Series(True, index=out.index)
             rule_scope = str(rule.scope).lower().strip()
-            
             if rule_scope.startswith("category:"):
-                # Extraer "Dining" de "category:Dining"
                 target_cat = rule_scope.split(":", 1)[1].strip()
                 scope_mask = (pcat_series == target_cat)
             
-            # Aplicar reglas: Monto + Scope + Que no haya sido matcheado ya (opcional)
-            mask = mask_amt & scope_mask & (~content_matched)
+            mask = mask_amt & scope_mask
             
             if mask.any():
-                out.loc[mask, "flag"] = _combine_flags(out.loc[mask, "flag"], Flag(rule.severity))
-                out.loc[mask, "reasons"] = out.loc[mask, "reasons"] + " | " + rule.reason
+                severity = Flag(rule.severity)
+                if severity == Flag.DIRECT_WARN:
+                    final_mask = mask
+                else:
+                    final_mask = mask & (~allow_mask)
 
-    # 9. Limpieza y Aplicación de Allowlist
+                if final_mask.any():
+                    out.loc[final_mask, "flag"] = _combine_flags(out.loc[final_mask, "flag"], severity)
+                    out.loc[final_mask, "reasons"] = out.loc[final_mask, "reasons"] + " | " + rule.reason
+
+    # =========================================================================
+    # PASO 4: OVERRIDE ABSOLUTO (MCC DESCRIPTION - FUERZA BRUTA)
+    # Requerimiento: BAR, LOUNGE, DISCO, NIGHTCLUB, TAVERN, ALCOHOLIC DRINKS
+    # Sea un warn directo, sin excepciones, ignorando allowlist y reglas previas.
+    # =========================================================================
+    if "mcc_description" in out.columns:
+        # Convertimos a mayúsculas para coincidencia insensible a mayúsculas/minúsculas
+        mcc_upper = out["mcc_description"].astype(str).str.upper()
+        
+        # Palabras clave forzadas
+        forced_keywords = ["BAR", "LOUNGE", "DISCO", "NIGHTCLUB", "TAVERN", "ALCOHOLIC"]
+        
+        force_mask = pd.Series(False, index=out.index)
+        for kw in forced_keywords:
+            # Buscamos la subcadena exacta (literal)
+            force_mask |= mcc_upper.str.contains(kw, regex=False, na=False)
+            
+        if force_mask.any():
+            # FORZAMOS EL FLAG Y LA RAZÓN
+            # Sobreescribe lo que haya puesto el Allowlist o cualquier regla anterior
+            out.loc[force_mask, "flag"] = Flag.DIRECT_WARN.value
+            out.loc[force_mask, "reasons"] = out.loc[force_mask, "reasons"].astype(str) + " | BLOQUEO FORZADO MCC"
+
+    # Limpieza final de strings
     out["reasons"] = out["reasons"].str.strip(" |")
     
-    if allow_mask.any():
-        out.loc[allow_mask, "flag"] = Flag.OK.value
-        out.loc[allow_mask, "reasons"] = "ALLOWLIST"
-
     return out
